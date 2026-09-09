@@ -283,7 +283,7 @@ final class TranscriptionServer {
             guard let diarization = latestDiarization else { return "不明" }
             return dominantSpeakerLabel(for: segment, in: diarization)
         }
-        guard !isSelf else { return "自分" }
+        guard !isSelf else { return UserProfile.selfLabel }
 
         guard let diarization = latestDiarization,
               let speakerId = dominantSpeakerId(for: segment, in: diarization) else {
