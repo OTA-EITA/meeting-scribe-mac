@@ -22,6 +22,12 @@ final class TranscriptionServer {
     private var modelReady = false
     private var modelLoadError: String?
 
+    /// 録音中に定期的に更新される話者分離結果。確定していればライブ配信にも
+    /// 話者ラベルを反映する(停止後の最終結果はこれとは別に全体を再解析する)。
+    private var latestDiarization: DiarizationResult?
+    private var diarizationTask: Task<Void, Never>?
+    private let diarizationInterval: UInt64 = 4_000_000_000 // 4秒ごと
+
     /// 同じ話者の発話が続く場合でも、これ以上の無音が空いたら改行する。
     private let pauseBreakThreshold: Float = 1.5
 
@@ -117,6 +123,7 @@ final class TranscriptionServer {
     private func startRecording() {
         guard let whisperKit, modelReady, !isRecording, let tokenizer = whisperKit.tokenizer else { return }
         isRecording = true
+        latestDiarization = nil
         broadcast(TranscriptMessage(type: "status", status: "recording"))
 
         let transcriber = AudioStreamTranscriber(
@@ -131,7 +138,12 @@ final class TranscriptionServer {
             Task { @MainActor in
                 guard let self else { return }
                 self.latestTranscriberState = newState
-                let confirmed = self.joinWithPauseBreaks(newState.confirmedSegments)
+                let confirmed: String
+                if let diarization = self.latestDiarization {
+                    confirmed = self.labelSegments(newState.confirmedSegments, with: diarization)
+                } else {
+                    confirmed = self.joinWithPauseBreaks(newState.confirmedSegments)
+                }
                 let unconfirmed = newState.unconfirmedSegments.map { $0.text }.joined()
                 self.broadcast(TranscriptMessage(type: "transcript", confirmedText: confirmed, unconfirmedText: unconfirmed))
             }
@@ -148,15 +160,44 @@ final class TranscriptionServer {
                 }
             }
         }
+
+        startPeriodicDiarization()
     }
 
     private func stopRecording() {
         guard isRecording, let transcriber = audioStreamTranscriber else { return }
         isRecording = false
+        stopPeriodicDiarization()
         Task {
             await transcriber.stopStreamTranscription()
             await self.finalizeWithSpeakerLabels()
         }
+    }
+
+    /// 録音中、数秒おきに録音全体(その時点まで)に対して話者分離をやり直し、
+    /// 結果を latestDiarization に反映する。次にAudioStreamTranscriberから
+    /// コールバックが来た時点でライブ配信のテキストにも話者ラベルが付くようになる。
+    /// 録音が長くなるほど1回あたりの処理時間は伸びるが、間隔を空けているため
+    /// 通常の会議の長さでは実用上問題にならない想定。
+    private func startPeriodicDiarization() {
+        guard speakerKit != nil else { return }
+        diarizationTask = Task { [weak self] in
+            while let self, !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: self.diarizationInterval)
+                guard !Task.isCancelled, self.isRecording,
+                      let whisperKit = self.whisperKit, let speakerKit = self.speakerKit else { continue }
+                let snapshot = Array(whisperKit.audioProcessor.audioSamples)
+                guard snapshot.count > 16_000 else { continue } // 1秒未満はスキップ
+                if let result = try? await speakerKit.diarize(audioArray: snapshot) {
+                    self.latestDiarization = result
+                }
+            }
+        }
+    }
+
+    private func stopPeriodicDiarization() {
+        diarizationTask?.cancel()
+        diarizationTask = nil
     }
 
     /// 停止後、録音全体に対して話者分離を実行し、話者ラベル付きの最終テキストを
