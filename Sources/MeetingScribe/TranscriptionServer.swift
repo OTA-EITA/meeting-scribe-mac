@@ -24,9 +24,17 @@ final class TranscriptionServer {
 
     /// 録音中に定期的に更新される話者分離結果。確定していればライブ配信にも
     /// 話者ラベルを反映する(停止後の最終結果はこれとは別に全体を再解析する)。
-    private var latestDiarization: DiarizationResult?
+    /// これは「相手」側で複数人を区別するためだけに使い、自分か相手かの
+    /// 一次判定はマイク/システム音声のどちらが優勢だったかで確実に行う
+    /// (MixedAudioProcessor.dominantSource)。
+    /// (internal: 単体テストから直接設定できるようにするため private にしていない)
+    var latestDiarization: DiarizationResult?
     private var diarizationTask: Task<Void, Never>?
     private let diarizationInterval: UInt64 = 4_000_000_000 // 4秒ごと
+
+    /// pyannote の話者IDを「相手1」「相手2」…という表示用の番号に固定するための
+    /// マッピング。セッション(録音)ごとにリセットする。
+    private var otherSpeakerNumbering: [Int: Int] = [:]
 
     /// 同じ話者の発話が続く場合でも、これ以上の無音が空いたら改行する。
     private let pauseBreakThreshold: Float = 1.5
@@ -124,6 +132,7 @@ final class TranscriptionServer {
         guard let whisperKit, modelReady, !isRecording, let tokenizer = whisperKit.tokenizer else { return }
         isRecording = true
         latestDiarization = nil
+        otherSpeakerNumbering = [:]
         broadcast(TranscriptMessage(type: "status", status: "recording"))
 
         let transcriber = AudioStreamTranscriber(
@@ -138,12 +147,7 @@ final class TranscriptionServer {
             Task { @MainActor in
                 guard let self else { return }
                 self.latestTranscriberState = newState
-                let confirmed: String
-                if let diarization = self.latestDiarization {
-                    confirmed = self.labelSegments(newState.confirmedSegments, with: diarization)
-                } else {
-                    confirmed = self.joinWithPauseBreaks(newState.confirmedSegments)
-                }
+                let confirmed = self.labelSegmentsHybrid(newState.confirmedSegments)
                 let unconfirmed = newState.unconfirmedSegments.map { $0.text }.joined()
                 self.broadcast(TranscriptMessage(type: "transcript", confirmedText: confirmed, unconfirmedText: unconfirmed))
             }
@@ -200,9 +204,10 @@ final class TranscriptionServer {
         diarizationTask = nil
     }
 
-    /// 停止後、録音全体に対して話者分離を実行し、話者ラベル付きの最終テキストを
-    /// 配信・ローカルへ議事録として自動書き出しする。話者分離モデルが未ロード、
-    /// もしくは失敗した場合はポーズ区切りのみのテキストのままにする。
+    /// 停止後、録音全体に対して話者分離をやり直し、自分/相手のラベル付きの
+    /// 最終テキストを配信・ローカルへ議事録として自動書き出しする。話者分離
+    /// モデルが未ロード、もしくは失敗した場合も、自分/相手の判定はマイク/
+    /// システム音声のどちらが優勢だったかで(話者分離とは独立に)行える。
     private func finalizeWithSpeakerLabels() async {
         guard let whisperKit, let state = latestTranscriberState else {
             broadcast(TranscriptMessage(type: "status", status: "stopped"))
@@ -214,18 +219,16 @@ final class TranscriptionServer {
             return
         }
 
-        var finalText = joinWithPauseBreaks(allSegments)
-
         if let speakerKit {
             broadcast(TranscriptMessage(type: "status", status: "diarizing"))
             let fullAudio = Array(whisperKit.audioProcessor.audioSamples)
             do {
-                let diarization = try await speakerKit.diarize(audioArray: fullAudio)
-                finalText = labelSegments(allSegments, with: diarization)
+                latestDiarization = try await speakerKit.diarize(audioArray: fullAudio)
             } catch {
                 print("TranscriptionServer: 話者分離に失敗しました: \(error)")
             }
         }
+        let finalText = labelSegmentsHybrid(allSegments)
 
         broadcast(TranscriptMessage(type: "transcript", confirmedText: finalText, unconfirmedText: ""))
         exportTranscript(finalText)
@@ -247,31 +250,19 @@ final class TranscriptionServer {
         }
     }
 
-    /// 無音区間が閾値を超えたら改行を挟んでセグメントのテキストを連結する。
-    /// (internal: 単体テストから直接検証できるようにするため private にしていない)
-    func joinWithPauseBreaks(_ segments: [TranscriptionSegment]) -> String {
-        guard let first = segments.first else { return "" }
-        var result = first.text
-        var previousEnd = first.end
-        for segment in segments.dropFirst() {
-            if segment.start - previousEnd > pauseBreakThreshold {
-                result += "\n"
-            }
-            result += segment.text
-            previousEnd = segment.end
-        }
-        return result
-    }
-
-    /// 各文字起こしセグメントに、時間的に最も重なりの大きい話者のラベルを付けて連結する。
-    /// 話者が切り替わる、または無音区間が閾値を超えたタイミングで改行する。
-    func labelSegments(_ segments: [TranscriptionSegment], with diarization: DiarizationResult) -> String {
+    /// マイク/システム音声のどちらが優勢だったかで「自分」「相手」を確実に判定し、
+    /// 「相手」側だけ話者分離で相手1・相手2…と区別する。音源の判定材料が無い
+    /// (MixedAudioProcessor 以外を使っている等)場合は、話者分離のみによる
+    /// 従来のラベル付けにフォールバックする。
+    func labelSegmentsHybrid(_ segments: [TranscriptionSegment]) -> String {
         guard !segments.isEmpty else { return "" }
+        let mixedProcessor = whisperKit?.audioProcessor as? MixedAudioProcessor
+
         var result = ""
         var previousEnd: Float?
         var previousLabel: String?
         for segment in segments {
-            let label = dominantSpeakerLabel(for: segment, in: diarization)
+            let label = hybridLabel(for: segment, mixedProcessor: mixedProcessor)
             let gap = previousEnd.map { segment.start - $0 } ?? .infinity
             if label != previousLabel {
                 result += result.isEmpty ? "" : "\n"
@@ -286,7 +277,34 @@ final class TranscriptionServer {
         return result
     }
 
+    private func hybridLabel(for segment: TranscriptionSegment, mixedProcessor: MixedAudioProcessor?) -> String {
+        guard let isSelf = mixedProcessor?.dominantSource(fromTime: segment.start, toTime: segment.end) else {
+            // 音源情報が無ければ話者分離のみでのラベルにフォールバック
+            guard let diarization = latestDiarization else { return "不明" }
+            return dominantSpeakerLabel(for: segment, in: diarization)
+        }
+        guard !isSelf else { return "自分" }
+
+        guard let diarization = latestDiarization,
+              let speakerId = dominantSpeakerId(for: segment, in: diarization) else {
+            return "相手"
+        }
+        if let number = otherSpeakerNumbering[speakerId] {
+            return "相手\(number)"
+        }
+        let number = otherSpeakerNumbering.count + 1
+        otherSpeakerNumbering[speakerId] = number
+        return "相手\(number)"
+    }
+
     private func dominantSpeakerLabel(for segment: TranscriptionSegment, in diarization: DiarizationResult) -> String {
+        guard let best = dominantSpeakerId(for: segment, in: diarization) else {
+            return "話者不明"
+        }
+        return "話者\(best + 1)"
+    }
+
+    private func dominantSpeakerId(for segment: TranscriptionSegment, in diarization: DiarizationResult) -> Int? {
         var overlapBySpeaker: [Int: Float] = [:]
         for speakerSegment in diarization.segments {
             guard let speakerId = speakerSegment.speaker.speakerId else { continue }
@@ -296,10 +314,7 @@ final class TranscriptionServer {
             guard overlap > 0 else { continue }
             overlapBySpeaker[speakerId, default: 0] += overlap
         }
-        guard let best = overlapBySpeaker.max(by: { $0.value < $1.value }) else {
-            return "話者不明"
-        }
-        return "話者\(best.key + 1)"
+        return overlapBySpeaker.max(by: { $0.value < $1.value })?.key
     }
 
     private func broadcast(_ message: TranscriptMessage) {
