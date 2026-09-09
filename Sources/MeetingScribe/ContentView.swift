@@ -5,6 +5,7 @@ struct ContentView: View {
     @ObservedObject var appState: AppState
     @ObservedObject var client: TranscriptClient
     @State private var exportFolder = ExportSettings.folderURL
+    @State private var userDisplayName = UserProfile.displayName
 
     init(appState: AppState) {
         self.appState = appState
@@ -84,6 +85,18 @@ struct ContentView: View {
                 Button("クリア") { client.transcript = "" }
                     .disabled(client.transcript.isEmpty)
             }
+
+            HStack {
+                Text("あなたの名前")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                TextField("自分", text: $userDisplayName)
+                    .textFieldStyle(.roundedBorder)
+                    .onChange(of: userDisplayName) { _, newValue in
+                        UserProfile.displayName = newValue
+                    }
+            }
+            .frame(maxWidth: 320)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("議事録の自動保存先")
