@@ -60,32 +60,26 @@ final class ExportSettingsTests: XCTestCase {
     }
 }
 
+/// TranscriptionServer.whisperKit はテストでは常に nil (start() を呼んでいない
+/// ため) なので、labelSegmentsHybrid は音源判定を試みられず、常に
+/// 話者分離(latestDiarization)のみによるフォールバック経路を通る。
+/// 音源による自分/相手の一次判定自体は MixedAudioProcessor が実機で
+/// 提供する情報に依存するため、ここでは検証していない。
 @MainActor
 final class TranscriptionServerTextFormattingTests: XCTestCase {
-    func testJoinWithPauseBreaksInsertsNewlineAfterLongSilence() {
+    func testLabelSegmentsHybridHandlesEmptySegments() {
         let server = TranscriptionServer()
-        let segments = [
-            TranscriptionSegment(start: 0.0, end: 1.0, text: "こんにちは"),
-            TranscriptionSegment(start: 1.2, end: 2.0, text: "元気ですか"), // 0.2s gap: same line
-            TranscriptionSegment(start: 5.0, end: 6.0, text: "また今度")   // 3s gap: new line
-        ]
-        let result = server.joinWithPauseBreaks(segments)
-        XCTAssertEqual(result, "こんにちは元気ですか\nまた今度")
+        XCTAssertTrue(server.labelSegmentsHybrid([]).isEmpty)
     }
 
-    func testJoinWithPauseBreaksHandlesEmptySegments() {
-        let server = TranscriptionServer()
-        XCTAssertTrue(server.joinWithPauseBreaks([]).isEmpty)
-    }
-
-    func testLabelSegmentsGroupsBySpeakerAndInsertsLabelOnChange() {
+    func testLabelSegmentsHybridFallsBackToDiarizationSpeakerLabels() {
         let server = TranscriptionServer()
         let segments = [
             TranscriptionSegment(start: 0.0, end: 1.0, text: "おはよう"),
             TranscriptionSegment(start: 1.0, end: 2.0, text: "です"),
             TranscriptionSegment(start: 2.0, end: 3.0, text: "こんにちは")
         ]
-        let diarization = DiarizationResult(
+        server.latestDiarization = DiarizationResult(
             speakerCount: 2,
             totalFrames: 0,
             frameRate: 1,
@@ -94,15 +88,13 @@ final class TranscriptionServerTextFormattingTests: XCTestCase {
                 SpeakerSegment(speaker: .speakerId(1), startTime: 2.0, endTime: 3.0, frameRate: 1)
             ]
         )
-        let result = server.labelSegments(segments, with: diarization)
+        let result = server.labelSegmentsHybrid(segments)
         XCTAssertEqual(result, "[話者1] おはようです\n[話者2] こんにちは")
     }
 
-    func testLabelSegmentsFallsBackToUnknownSpeakerWithoutOverlap() {
+    func testLabelSegmentsHybridFallsBackToUnknownWithoutDiarizationData() {
         let server = TranscriptionServer()
         let segments = [TranscriptionSegment(start: 10.0, end: 11.0, text: "テスト")]
-        let diarization = DiarizationResult(speakerCount: 0, totalFrames: 0, frameRate: 1, segments: [])
-        let result = server.labelSegments(segments, with: diarization)
-        XCTAssertEqual(result, "[話者不明] テスト")
+        XCTAssertEqual(server.labelSegmentsHybrid(segments), "[不明] テスト")
     }
 }
