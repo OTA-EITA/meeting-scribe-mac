@@ -207,7 +207,8 @@ final class TranscriptionServer {
     }
 
     /// 無音区間が閾値を超えたら改行を挟んでセグメントのテキストを連結する。
-    private func joinWithPauseBreaks(_ segments: [TranscriptionSegment]) -> String {
+    /// (internal: 単体テストから直接検証できるようにするため private にしていない)
+    func joinWithPauseBreaks(_ segments: [TranscriptionSegment]) -> String {
         guard let first = segments.first else { return "" }
         var result = first.text
         var previousEnd = first.end
@@ -223,7 +224,7 @@ final class TranscriptionServer {
 
     /// 各文字起こしセグメントに、時間的に最も重なりの大きい話者のラベルを付けて連結する。
     /// 話者が切り替わる、または無音区間が閾値を超えたタイミングで改行する。
-    private func labelSegments(_ segments: [TranscriptionSegment], with diarization: DiarizationResult) -> String {
+    func labelSegments(_ segments: [TranscriptionSegment], with diarization: DiarizationResult) -> String {
         guard !segments.isEmpty else { return "" }
         var result = ""
         var previousEnd: Float?
