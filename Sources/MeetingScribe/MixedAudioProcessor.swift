@@ -46,6 +46,12 @@ final class MixedAudioProcessor: NSObject, AudioProcessing {
     private var systemBuffer: [Float] = []
     private var mixTimer: DispatchSourceTimer?
 
+    /// マイク/システム音声それぞれの時間帯ごとのエネルギーを記録しておき、
+    /// 文字起こしセグメントが「自分(マイク)」か「相手(システム音声)」かを
+    /// 声質の推定ではなく音源そのもので判定できるようにする。
+    private var sourceEnergyTimeline: [(startTime: Float, endTime: Float, mic: Float, system: Float)] = []
+    private var cumulativeSampleCount: Int = 0
+
     override init() {
         if #available(macOS 13.0, *) {
             systemAudio = SystemAudioCapture()
@@ -67,10 +73,29 @@ final class MixedAudioProcessor: NSObject, AudioProcessing {
         audioBufferCallback = callback
         micBuffer = []
         systemBuffer = []
+        sourceEnergyTimeline = []
+        cumulativeSampleCount = 0
 
         try startMic()
         startSystemAudio()
         startMixTimer()
+    }
+
+    /// 指定した時間範囲([start, end) 秒)で、マイクとシステム音声のどちらが
+    /// より優勢だったかを返す。true ならマイク(自分)、false ならシステム音声
+    /// (相手)。該当するデータが無ければ nil。
+    func dominantSource(fromTime start: Float, toTime end: Float) -> Bool? {
+        var micTotal: Float = 0
+        var systemTotal: Float = 0
+        var found = false
+        for entry in sourceEnergyTimeline {
+            guard entry.endTime > start, entry.startTime < end else { continue }
+            micTotal += entry.mic
+            systemTotal += entry.system
+            found = true
+        }
+        guard found else { return nil }
+        return micTotal >= systemTotal
     }
 
     func startStreamingRecordingLive(inputDeviceID: DeviceID?) -> (AsyncThrowingStream<[Float], Error>, AsyncThrowingStream<[Float], Error>.Continuation) {
@@ -204,6 +229,14 @@ final class MixedAudioProcessor: NSObject, AudioProcessing {
             let systemSample = i < system.count ? system[i] : 0
             mixed[i] = max(-1, min(1, micSample + systemSample))
         }
+
+        let startTime = Float(cumulativeSampleCount) / Float(targetFormat.sampleRate)
+        cumulativeSampleCount += count
+        let endTime = Float(cumulativeSampleCount) / Float(targetFormat.sampleRate)
+        let micEnergy = mic.isEmpty ? 0 : AudioProcessor.calculateAverageEnergy(of: mic)
+        let systemEnergy = system.isEmpty ? 0 : AudioProcessor.calculateAverageEnergy(of: system)
+        sourceEnergyTimeline.append((startTime, endTime, micEnergy, systemEnergy))
+
         processBuffer(mixed)
     }
 
