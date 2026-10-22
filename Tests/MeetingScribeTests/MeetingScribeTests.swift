@@ -268,7 +268,7 @@ struct TranscriptClientRenameTests {
         let client = TranscriptClient()
         client.transcript = "[00:00:01] [相手1] どうも"
         client.lastExportURL = textURL
-        client.renameSpeakers(["相手1": "田中"])
+        client.renameSpeakers(["相手1": "田中"], exportFolder: folder)
 
         #expect(client.transcript == "[00:00:01] [田中] どうも")
         #expect(try String(contentsOf: textURL, encoding: .utf8) == "[00:00:01] [田中] どうも")
@@ -298,5 +298,43 @@ struct OriginPolicyTests {
     @Test func readsOriginHeaderCaseInsensitively() {
         let headers = [(name: "Host", value: "127.0.0.1:8765"), (name: "origin", value: "https://evil.example")]
         #expect(OriginPolicy.origin(in: headers) == "https://evil.example")
+    }
+}
+
+struct TranscriptFilesLocationTests {
+    private let folder = URL(fileURLWithPath: "/tmp/MeetingScribeExportFolder", isDirectory: true)
+
+    @Test func acceptsTextFilesInTheExportFolder() {
+        #expect(TranscriptFiles.isExportedTranscript(folder.appendingPathComponent("議事録_1.txt"), in: folder))
+    }
+
+    @Test(arguments: [
+        "/etc/hosts",
+        "/tmp/MeetingScribeExportFolder/../secret.txt",
+        "/tmp/MeetingScribeExportFolderEvil/議事録_1.txt",
+        "/tmp/MeetingScribeExportFolder/sub/議事録_1.txt",
+        "/tmp/MeetingScribeExportFolder/議事録_1.sh"
+    ])
+    func rejectsOtherLocations(_ path: String) {
+        #expect(!TranscriptFiles.isExportedTranscript(URL(fileURLWithPath: path), in: folder))
+    }
+}
+
+@MainActor
+struct TranscriptClientRenameGuardTests {
+    @Test func doesNotRewriteFilesOutsideTheExportFolder() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let outside = folder.appendingPathComponent("outside.txt")
+        try "[相手1] そのまま".write(to: outside, atomically: true, encoding: .utf8)
+
+        let client = TranscriptClient()
+        client.transcript = "[相手1] そのまま"
+        client.lastExportURL = outside
+        client.renameSpeakers(["相手1": "田中"], exportFolder: folder.appendingPathComponent("exports", isDirectory: true))
+
+        #expect(client.transcript == "[田中] そのまま")
+        #expect(try String(contentsOf: outside, encoding: .utf8) == "[相手1] そのまま")
     }
 }
