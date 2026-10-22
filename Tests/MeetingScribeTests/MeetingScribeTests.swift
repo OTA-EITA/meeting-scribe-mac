@@ -1,11 +1,11 @@
-import XCTest
+import Testing
 import Foundation
 import WhisperKit
 import SpeakerKit
 @testable import MeetingScribe
 
-final class TranscriptMessageTests: XCTestCase {
-    func testRoundTripsThroughJSON() throws {
+struct TranscriptMessageTests {
+    @Test func roundTripsThroughJSON() throws {
         let message = TranscriptMessage(
             type: "transcript",
             status: nil,
@@ -16,47 +16,50 @@ final class TranscriptMessageTests: XCTestCase {
         )
         let data = try JSONEncoder().encode(message)
         let decoded = try JSONDecoder().decode(TranscriptMessage.self, from: data)
-        XCTAssertEqual(decoded.type, "transcript")
-        XCTAssertEqual(decoded.confirmedText, "こんにちは")
-        XCTAssertEqual(decoded.unconfirmedText, "今")
+        #expect(decoded.type == "transcript")
+        #expect(decoded.confirmedText == "こんにちは")
+        #expect(decoded.unconfirmedText == "今")
     }
 
-    func testOmitsAbsentOptionalFields() throws {
+    @Test func omitsAbsentOptionalFields() throws {
         let message = TranscriptMessage(type: "control", status: nil, confirmedText: nil, unconfirmedText: nil, message: nil, action: "start")
         let data = try JSONEncoder().encode(message)
-        let json = try XCTUnwrap(String(data: data, encoding: .utf8))
-        XCTAssertFalse(json.contains("status"))
-        XCTAssertFalse(json.contains("confirmedText"))
+        let json = try #require(String(data: data, encoding: .utf8))
+        #expect(!json.contains("status"))
+        #expect(!json.contains("confirmedText"))
     }
 }
 
-final class ExportSettingsTests: XCTestCase {
+/// UserDefaults.standard を書き換えるため、他のテストと並行させない。
+@Suite(.serialized)
+struct ExportSettingsTests {
     private let key = "exportFolderPath"
-    private var previousValue: String?
 
-    override func setUp() {
-        super.setUp()
-        previousValue = UserDefaults.standard.string(forKey: key)
-    }
-
-    override func tearDown() {
-        if let previousValue {
-            UserDefaults.standard.set(previousValue, forKey: key)
-        } else {
-            UserDefaults.standard.removeObject(forKey: key)
+    private func withRestoredDefaults(_ body: () -> Void) {
+        let previousValue = UserDefaults.standard.string(forKey: key)
+        defer {
+            if let previousValue {
+                UserDefaults.standard.set(previousValue, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
         }
-        super.tearDown()
+        body()
     }
 
-    func testFallsBackToDefaultWhenUnset() {
-        UserDefaults.standard.removeObject(forKey: key)
-        XCTAssertEqual(ExportSettings.folderURL, ExportSettings.defaultFolderURL)
+    @Test func fallsBackToDefaultWhenUnset() {
+        withRestoredDefaults {
+            UserDefaults.standard.removeObject(forKey: key)
+            #expect(ExportSettings.folderURL == ExportSettings.defaultFolderURL)
+        }
     }
 
-    func testPersistsChosenFolder() {
-        let customFolder = URL(fileURLWithPath: "/tmp/MeetingScribeTestFolder", isDirectory: true)
-        ExportSettings.folderURL = customFolder
-        XCTAssertEqual(ExportSettings.folderURL, customFolder)
+    @Test func persistsChosenFolder() {
+        withRestoredDefaults {
+            let customFolder = URL(fileURLWithPath: "/tmp/MeetingScribeTestFolder", isDirectory: true)
+            ExportSettings.folderURL = customFolder
+            #expect(ExportSettings.folderURL == customFolder)
+        }
     }
 }
 
@@ -66,13 +69,13 @@ final class ExportSettingsTests: XCTestCase {
 /// 音源による自分/相手の一次判定自体は MixedAudioProcessor が実機で
 /// 提供する情報に依存するため、ここでは検証していない。
 @MainActor
-final class TranscriptionServerTextFormattingTests: XCTestCase {
-    func testLabelSegmentsHybridHandlesEmptySegments() {
+struct TranscriptionServerTextFormattingTests {
+    @Test func labelSegmentsHybridHandlesEmptySegments() {
         let server = TranscriptionServer()
-        XCTAssertTrue(server.labelSegmentsHybrid([]).isEmpty)
+        #expect(server.labelSegmentsHybrid([]).isEmpty)
     }
 
-    func testLabelSegmentsHybridFallsBackToDiarizationSpeakerLabels() {
+    @Test func labelSegmentsHybridFallsBackToDiarizationSpeakerLabels() {
         let server = TranscriptionServer()
         let segments = [
             TranscriptionSegment(start: 0.0, end: 1.0, text: "おはよう"),
@@ -89,12 +92,12 @@ final class TranscriptionServerTextFormattingTests: XCTestCase {
             ]
         )
         let result = server.labelSegmentsHybrid(segments)
-        XCTAssertEqual(result, "[話者1] おはようです\n[話者2] こんにちは")
+        #expect(result == "[話者1] おはようです\n[話者2] こんにちは")
     }
 
-    func testLabelSegmentsHybridFallsBackToUnknownWithoutDiarizationData() {
+    @Test func labelSegmentsHybridFallsBackToUnknownWithoutDiarizationData() {
         let server = TranscriptionServer()
         let segments = [TranscriptionSegment(start: 10.0, end: 11.0, text: "テスト")]
-        XCTAssertEqual(server.labelSegmentsHybrid(segments), "[不明] テスト")
+        #expect(server.labelSegmentsHybrid(segments) == "[不明] テスト")
     }
 }
