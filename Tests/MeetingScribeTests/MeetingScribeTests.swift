@@ -183,3 +183,94 @@ struct ModelSettingsTests {
         }
     }
 }
+
+struct TranscriptFormatterTests {
+    @Test(arguments: [
+        (Float(0), "00:00:00"),
+        (Float(5.9), "00:00:05"),
+        (Float(754), "00:12:34"),
+        (Float(3661), "01:01:01")
+    ])
+    func formatsElapsedTime(_ seconds: Float, _ expected: String) {
+        #expect(TranscriptFormatter.elapsed(seconds) == expected)
+    }
+
+    @Test func convertsTimestampedTextToMarkdown() {
+        let text = """
+        [00:00:01] [自分] おはようございます
+        [00:00:09] 本題に入ります
+        [00:00:15] [相手1] よろしくお願いします
+        """
+        let markdown = TranscriptFormatter.markdown(from: text, title: "議事録_2026-10-22")
+        #expect(markdown == """
+        # 議事録_2026-10-22
+
+        - **00:00:01 自分**: おはようございます
+        - **00:00:09 自分**: 本題に入ります
+        - **00:00:15 相手1**: よろしくお願いします
+
+        """)
+    }
+
+    @Test func findsOtherSpeakerLabelsInOrder() {
+        let text = "[00:00:01] [相手2] a\n[00:00:02] [自分] b\n[00:00:03] [相手1] c\n[00:00:04] [相手2] d"
+        #expect(TranscriptFormatter.otherSpeakerLabels(in: text) == ["相手2", "相手1"])
+    }
+
+    @Test func renamesSpeakersWithoutTouchingSimilarLabels() {
+        let text = "[相手1] a\n[相手10] b\n相手1さんの件"
+        let renamed = TranscriptFormatter.renameSpeakers(in: text, mapping: ["相手1": "田中", "相手10": ""])
+        #expect(renamed == "[田中] a\n[相手10] b\n相手1さんの件")
+    }
+}
+
+@MainActor
+struct TranscriptionServerTimestampTests {
+    @Test func prefixesEachLineWithElapsedTime() {
+        let server = TranscriptionServer()
+        let segments = [
+            TranscriptionSegment(start: 1, end: 2, text: "一つ目"),
+            TranscriptionSegment(start: 2, end: 3, text: "続き"),
+            TranscriptionSegment(start: 9, end: 10, text: "間が空いた")
+        ]
+        #expect(server.labelSegmentsHybrid(segments, timestamps: true) == "[00:00:01] [不明] 一つ目続き\n[00:00:09] 間が空いた")
+    }
+}
+
+struct TranscriptFilesTests {
+    @Test func writesTextAndMarkdownSideBySide() throws {
+        let previous = UserDefaults.standard.object(forKey: "exportMarkdown")
+        defer { UserDefaults.standard.set(previous, forKey: "exportMarkdown") }
+        ExportSettings.saveMarkdown = true
+
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let textURL = folder.appendingPathComponent("議事録_test.txt")
+        try TranscriptFiles.write("[00:00:01] [自分] こんにちは", to: textURL)
+
+        #expect(try String(contentsOf: textURL, encoding: .utf8) == "[00:00:01] [自分] こんにちは")
+        let markdown = try String(contentsOf: TranscriptFiles.markdownURL(for: textURL), encoding: .utf8)
+        #expect(markdown == "# 議事録_test\n\n- **00:00:01 自分**: こんにちは\n")
+    }
+}
+
+@MainActor
+struct TranscriptClientRenameTests {
+    @Test func renamesOnScreenTextAndSavedFiles() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let textURL = folder.appendingPathComponent("議事録_test.txt")
+        try "[00:00:01] [相手1] どうも".write(to: textURL, atomically: true, encoding: .utf8)
+
+        let client = TranscriptClient()
+        client.transcript = "[00:00:01] [相手1] どうも"
+        client.lastExportURL = textURL
+        client.renameSpeakers(["相手1": "田中"])
+
+        #expect(client.transcript == "[00:00:01] [田中] どうも")
+        #expect(try String(contentsOf: textURL, encoding: .utf8) == "[00:00:01] [田中] どうも")
+    }
+}
