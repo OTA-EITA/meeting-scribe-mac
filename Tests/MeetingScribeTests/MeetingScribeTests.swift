@@ -101,3 +101,48 @@ struct TranscriptionServerTextFormattingTests {
         #expect(server.labelSegmentsHybrid(segments) == "[不明] テスト")
     }
 }
+
+struct HallucinationFilterTests {
+    @Test(arguments: [
+        "ご視聴ありがとうございました",
+        "ご視聴ありがとうございました。",
+        "(音楽)",
+        "（拍手）",
+        "[音楽]",
+        "♪～",
+        "チャンネル登録よろしくお願いします",
+        "  "
+    ])
+    func dropsKnownHallucinations(_ text: String) {
+        #expect(HallucinationFilter.clean(text).isEmpty)
+    }
+
+    @Test func removesBracketedNoiseButKeepsSpeech() {
+        #expect(HallucinationFilter.clean("(音楽)それでは始めます") == "それでは始めます")
+    }
+
+    @Test func keepsOrdinarySpeech() {
+        #expect(HallucinationFilter.clean("ありがとうございました") == "ありがとうございました")
+    }
+
+    @Test func dropsSegmentsThatBecomeEmpty() {
+        let segments = [
+            TranscriptionSegment(start: 0, end: 1, text: "(音楽)"),
+            TranscriptionSegment(start: 1, end: 2, text: "本題に入ります")
+        ]
+        let result = HallucinationFilter.filter(segments)
+        #expect(result.map(\.text) == ["本題に入ります"])
+    }
+}
+
+@MainActor
+struct TranscriptionServerHallucinationTests {
+    @Test func labelSegmentsHybridSkipsHallucinatedSegments() {
+        let server = TranscriptionServer()
+        let segments = [
+            TranscriptionSegment(start: 0, end: 1, text: "ご視聴ありがとうございました"),
+            TranscriptionSegment(start: 1, end: 2, text: "テスト")
+        ]
+        #expect(server.labelSegmentsHybrid(segments) == "[不明] テスト")
+    }
+}
