@@ -46,9 +46,11 @@ final class TranscriptionServer {
         let parameters = NWParameters.tcp
         parameters.defaultProtocolStack.applicationProtocols.insert(wsOptions, at: 0)
         parameters.allowLocalEndpointReuse = true
+        // 文字起こし結果と録音の操作を同じ端末の外へ出さないよう、ループバックだけで待ち受ける。
+        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: Self.port)!)
 
         do {
-            let listener = try NWListener(using: parameters, on: NWEndpoint.Port(rawValue: Self.port)!)
+            let listener = try NWListener(using: parameters)
             listener.newConnectionHandler = { [weak self] connection in
                 Task { @MainActor in
                     self?.accept(connection)
