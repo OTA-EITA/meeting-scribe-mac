@@ -22,6 +22,8 @@ final class TranscriptClient: ObservableObject {
     @Published var unconfirmedText = ""
     /// セッションをまたいで蓄積した文字起こし全文(保存・一覧表示用)
     @Published var transcript = ""
+    /// 直前の録音セッションで自動保存された議事録(.txt)の場所
+    @Published var lastExportURL: URL?
 
     private var client: RawWebSocketClient?
     private let port: UInt16
@@ -82,6 +84,7 @@ final class TranscriptClient: ObservableObject {
             case "stopped":
                 isRecording = false
                 isDiarizing = false
+                lastExportURL = message.message.map { URL(fileURLWithPath: $0) }
                 finalizeSession()
                 statusText = "完了。続けて録音できます。"
             default:
@@ -104,6 +107,20 @@ final class TranscriptClient: ObservableObject {
         }
         confirmedText = ""
         unconfirmedText = ""
+    }
+
+    /// 「相手1」などのラベルを実際の名前に付け替える。画面の全文と、
+    /// 直前に自動保存した議事録(.txt と .md)の両方を書き直す。
+    func renameSpeakers(_ mapping: [String: String]) {
+        transcript = TranscriptFormatter.renameSpeakers(in: transcript, mapping: mapping)
+        guard let lastExportURL else { return }
+        do {
+            let saved = try String(contentsOf: lastExportURL, encoding: .utf8)
+            let renamed = TranscriptFormatter.renameSpeakers(in: saved, mapping: mapping)
+            try TranscriptFiles.write(renamed, to: lastExportURL)
+        } catch {
+            statusText = "議事録の書き直しに失敗しました: \(error.localizedDescription)"
+        }
     }
 
     func startRecording() {
