@@ -69,6 +69,22 @@ tccutil reset ScreenCapture local.meetingscribe
 4. 必要なら「字幕オーバーレイも表示」で、会議アプリの上に字幕を重ねて表示できる(ドラッグで位置調整、スライダーで濃さ調整が可能)
 5. メインウィンドウを閉じてもアプリはメニューバーに常駐し続ける。メニューバーのアイコンから録音の開始/停止、オーバーレイの表示切り替え、終了ができる
 
+## Chrome 拡張機能
+
+`chrome-extension/` は、Chrome のサイドパネルから字幕を見て録音を開始・停止するための拡張機能です。文字起こしは Mac アプリが行い、拡張機能はローカルの WebSocket (`ws://127.0.0.1:8765`) でつなぐ画面だけを受け持ちます。使うときは Mac アプリを起動しておいてください。
+
+1. Chrome で `chrome://extensions` を開き、右上の「デベロッパー モード」をオンにする
+2. 「パッケージ化されていない拡張機能を読み込む」で `chrome-extension` フォルダを選ぶ
+3. ツールバーの MeetingScribe のアイコンを押すと、サイドパネルが開く
+
+ブラウザの WebSocket には CORS の制限がかからないため、エンジンは接続時の Origin ヘッダーを確かめ、この拡張機能以外のウェブサイトからの接続を断ります。拡張機能の ID は `manifest.json` の `key` で `pjkgdgbmgcoooolfkjjgkinidnccojhj` に固定しており、`OriginPolicy.swift` の値と一致させています。
+
+拡張機能の単体テストは次のコマンドで実行します。
+
+```bash
+cd chrome-extension && npm test
+```
+
 ## 既知の制限・注意点
 
 - **企業のセキュリティソフト(VPN/EDR)がある環境では、ローカルの WebSocket 通信(ループバック)が中断されることがあります。** 本プロジェクトの開発機では FortiClient の VPN 用ネットワーク拡張が `NWConnection`(Apple の Network.framework)経由のループバック通信を中断させる現象が確認されたため、UI 側のクライアントは Network.framework を使わず、生の BSD ソケットで実装した WebSocket クライアント(`RawWebSocketClient.swift`)を使っている。同様の環境では他の内部通信にも影響が出る可能性がある。
