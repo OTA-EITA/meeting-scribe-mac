@@ -274,3 +274,29 @@ struct TranscriptClientRenameTests {
         #expect(try String(contentsOf: textURL, encoding: .utf8) == "[00:00:01] [田中] どうも")
     }
 }
+
+struct OriginPolicyTests {
+    @Test func allowsNativeClientsWithoutOrigin() {
+        #expect(OriginPolicy.isAllowed(origin: nil))
+    }
+
+    @Test func allowsTheBundledChromeExtension() {
+        #expect(OriginPolicy.isAllowed(origin: "chrome-extension://pjkgdgbmgcoooolfkjjgkinidnccojhj"))
+    }
+
+    @Test(arguments: [
+        "https://evil.example",
+        "http://localhost:3000",
+        "null",
+        "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "chrome-extension://pjkgdgbmgcoooolfkjjgkinidnccojhj.evil.example"
+    ])
+    func rejectsOtherBrowserOrigins(_ origin: String) {
+        #expect(!OriginPolicy.isAllowed(origin: origin))
+    }
+
+    @Test func readsOriginHeaderCaseInsensitively() {
+        let headers = [(name: "Host", value: "127.0.0.1:8765"), (name: "origin", value: "https://evil.example")]
+        #expect(OriginPolicy.origin(in: headers) == "https://evil.example")
+    }
+}
