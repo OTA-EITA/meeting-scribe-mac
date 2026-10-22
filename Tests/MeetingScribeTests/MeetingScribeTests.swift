@@ -146,3 +146,40 @@ struct TranscriptionServerHallucinationTests {
         #expect(server.labelSegmentsHybrid(segments) == "[不明] テスト")
     }
 }
+
+/// UserDefaults.standard を書き換えるため、他のテストと並行させない。
+@Suite(.serialized)
+struct ModelSettingsTests {
+    private func withRestoredDefaults(_ body: () -> Void) {
+        let previousValue = UserDefaults.standard.string(forKey: "whisperModel")
+        defer {
+            if let previousValue {
+                UserDefaults.standard.set(previousValue, forKey: "whisperModel")
+            } else {
+                UserDefaults.standard.removeObject(forKey: "whisperModel")
+            }
+        }
+        body()
+    }
+
+    @Test func defaultsToSmall() {
+        withRestoredDefaults {
+            UserDefaults.standard.removeObject(forKey: "whisperModel")
+            #expect(ModelSettings.current == .small)
+        }
+    }
+
+    @Test func persistsChosenModel() {
+        withRestoredDefaults {
+            ModelSettings.current = .medium
+            #expect(ModelSettings.current == .medium)
+        }
+    }
+
+    @Test func ignoresUnknownStoredValue() {
+        withRestoredDefaults {
+            UserDefaults.standard.set("no-such-model", forKey: "whisperModel")
+            #expect(ModelSettings.current == .small)
+        }
+    }
+}
