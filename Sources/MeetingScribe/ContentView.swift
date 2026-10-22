@@ -7,6 +7,13 @@ struct ContentView: View {
     @State private var exportFolder = ExportSettings.folderURL
     @State private var userDisplayName = UserProfile.displayName
     @State private var selectedModel = ModelSettings.current
+    @State private var saveMarkdown = ExportSettings.saveMarkdown
+    /// 「相手1」などのラベルごとに入力中の名前
+    @State private var speakerNames: [String: String] = [:]
+
+    private var otherSpeakerLabels: [String] {
+        TranscriptFormatter.otherSpeakerLabels(in: client.transcript)
+    }
 
     init(appState: AppState) {
         self.appState = appState
@@ -87,6 +94,32 @@ struct ContentView: View {
                     .disabled(client.transcript.isEmpty)
             }
 
+            if !client.isRecording && !otherSpeakerLabels.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("相手の名前")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    ForEach(otherSpeakerLabels, id: \.self) { label in
+                        HStack {
+                            Text(label)
+                                .font(.caption)
+                                .frame(width: 48, alignment: .leading)
+                            TextField("名前", text: Binding(
+                                get: { speakerNames[label] ?? "" },
+                                set: { speakerNames[label] = $0 }
+                            ))
+                            .textFieldStyle(.roundedBorder)
+                        }
+                    }
+                    Button("名前を反映") {
+                        client.renameSpeakers(speakerNames)
+                        speakerNames = [:]
+                    }
+                    .disabled(speakerNames.values.allSatisfy { $0.trimmingCharacters(in: .whitespaces).isEmpty })
+                }
+                .frame(maxWidth: 320)
+            }
+
             HStack {
                 Text("あなたの名前")
                     .font(.caption)
@@ -125,6 +158,11 @@ struct ContentView: View {
                     Spacer()
                     Button("変更…") { chooseExportFolder() }
                 }
+                Toggle("Markdown (.md) でも保存", isOn: $saveMarkdown)
+                    .font(.caption)
+                    .onChange(of: saveMarkdown) { _, newValue in
+                        ExportSettings.saveMarkdown = newValue
+                    }
             }
         }
         .padding(24)
