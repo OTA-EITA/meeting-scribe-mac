@@ -20,6 +20,7 @@ final class TranscriptionServer {
     private var latestTranscriberState: AudioStreamTranscriber.State?
     private var isRecording = false
     private var modelReady = false
+    private var isLoadingModel = false
     private var modelLoadError: String?
 
     /// 録音中に定期的に更新される話者分離結果。確定していればライブ配信にも
@@ -99,18 +100,33 @@ final class TranscriptionServer {
         switch message.action {
         case "start": startRecording()
         case "stop": stopRecording()
+        case "reloadModel": reloadModel()
         default: break
         }
     }
 
+    /// ModelSettings で選び直したモデルに差し替える。録音中と読み込み中は受け付けない。
+    private func reloadModel() {
+        guard !isRecording, !isLoadingModel else { return }
+        whisperKit = nil
+        modelReady = false
+        modelLoadError = nil
+        Task {
+            await loadModel()
+        }
+    }
+
     private func loadModel() async {
+        isLoadingModel = true
+        defer { isLoadingModel = false }
         broadcast(TranscriptMessage(type: "status", status: "modelLoading"))
         do {
-            // "base" は日本語の認識精度が低く、繰り返しや幻聴的な誤認識が目立ったため
-            // "small" に変更。M2 Mac ではリアルタイム処理に十分な速度が出る。
+            // 既定は "small"。"base" は日本語の認識精度が低く、繰り返しや幻聴的な
+            // 誤認識が目立ったため使わない。より高精度なモデルは画面から選べる。
             // audioProcessor は MixedAudioProcessor に差し替え、マイクだけでなく
             // システム出力音声(Meet相手の声など)も合成して文字起こし対象にする。
-            let pipe = try await WhisperKit(model: "small", audioProcessor: MixedAudioProcessor(), load: true)
+            let model = ModelSettings.current.modelName
+            let pipe = try await WhisperKit(model: model, audioProcessor: MixedAudioProcessor(), load: true)
             whisperKit = pipe
             modelReady = true
             broadcast(TranscriptMessage(type: "status", status: "ready"))
@@ -121,6 +137,8 @@ final class TranscriptionServer {
 
         // 話者分離モデルはベストエフォート。読み込みに失敗しても文字起こし自体は
         // 続行できるようにし、その場合は話者ラベル無しのテキストにフォールバックする。
+        // 文字起こしモデルを差し替えても話者分離モデルは使い回す。
+        guard speakerKit == nil else { return }
         do {
             speakerKit = try await SpeakerKit(PyannoteConfig(download: true, load: true))
         } catch {
