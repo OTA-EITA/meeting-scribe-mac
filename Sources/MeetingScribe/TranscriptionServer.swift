@@ -148,7 +148,7 @@ final class TranscriptionServer {
                 guard let self else { return }
                 self.latestTranscriberState = newState
                 let confirmed = self.labelSegmentsHybrid(newState.confirmedSegments)
-                let unconfirmed = newState.unconfirmedSegments.map { $0.text }.joined()
+                let unconfirmed = HallucinationFilter.filter(newState.unconfirmedSegments).map { $0.text }.joined()
                 self.broadcast(TranscriptMessage(type: "transcript", confirmedText: confirmed, unconfirmedText: unconfirmed))
             }
         }
@@ -253,8 +253,9 @@ final class TranscriptionServer {
     /// マイク/システム音声のどちらが優勢だったかで「自分」「相手」を確実に判定し、
     /// 「相手」側だけ話者分離で相手1・相手2…と区別する。音源の判定材料が無い
     /// (MixedAudioProcessor 以外を使っている等)場合は、話者分離のみによる
-    /// 従来のラベル付けにフォールバックする。
+    /// 従来のラベル付けにフォールバックする。幻聴のセグメントは先に取り除く。
     func labelSegmentsHybrid(_ segments: [TranscriptionSegment]) -> String {
+        let segments = HallucinationFilter.filter(segments)
         guard !segments.isEmpty else { return "" }
         let mixedProcessor = whisperKit?.audioProcessor as? MixedAudioProcessor
 
