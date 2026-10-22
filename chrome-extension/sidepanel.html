@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MeetingScribe</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <header>
+    <h1>MeetingScribe</h1>
+    <p id="status" role="status">MeetingScribe に接続しています…</p>
+  </header>
+  <button id="record" type="button" disabled>録音を開始</button>
+  <section id="transcript" aria-live="polite" aria-label="文字起こし">
+    <p class="placeholder">ここに文字起こし結果が表示されます。</p>
+  </section>
+  <footer>
+    <button id="copy" type="button" disabled>コピー</button>
+    <span id="saved"></span>
+  </footer>
+  <script type="module" src="sidepanel.js"></script>
+</body>
+</html>
