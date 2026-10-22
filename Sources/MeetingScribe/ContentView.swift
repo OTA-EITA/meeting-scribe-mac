@@ -6,6 +6,7 @@ struct ContentView: View {
     @ObservedObject var client: TranscriptClient
     @State private var exportFolder = ExportSettings.folderURL
     @State private var userDisplayName = UserProfile.displayName
+    @State private var selectedModel = ModelSettings.current
 
     init(appState: AppState) {
         self.appState = appState
@@ -97,6 +98,19 @@ struct ContentView: View {
                     }
             }
             .frame(maxWidth: 320)
+
+            Picker("文字起こしモデル", selection: $selectedModel) {
+                ForEach(WhisperModelOption.allCases) { option in
+                    Text(option.displayName).tag(option)
+                }
+            }
+            .font(.caption)
+            .frame(maxWidth: 360)
+            .disabled(client.isRecording || client.isDiarizing)
+            .onChange(of: selectedModel) { _, newValue in
+                ModelSettings.current = newValue
+                client.reloadModel()
+            }
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("議事録の自動保存先")
