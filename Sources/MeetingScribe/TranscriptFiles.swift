@@ -15,4 +15,14 @@ enum TranscriptFiles {
     static func markdownURL(for textURL: URL) -> URL {
         textURL.deletingPathExtension().appendingPathExtension("md")
     }
+
+    /// 保存先フォルダの直下にある .txt かどうか。書き直す前に確かめ、エンジンを装った
+    /// 別のプロセスから任意のファイルを書き換えさせられないようにする。
+    /// シンボリックリンクと「..」は解決してから比べる。
+    static func isExportedTranscript(_ url: URL, in folder: URL) -> Bool {
+        let file = url.standardizedFileURL.resolvingSymlinksInPath()
+        let expectedFolder = folder.standardizedFileURL.resolvingSymlinksInPath()
+        return file.pathExtension == "txt"
+            && file.deletingLastPathComponent().path == expectedFolder.path
+    }
 }
