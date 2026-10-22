@@ -43,6 +43,15 @@ final class TranscriptionServer {
     func start() {
         let wsOptions = NWProtocolWebSocket.Options()
         wsOptions.autoReplyPing = true
+        // ブラウザで開いた任意のサイトからの接続を、ハンドシェイクの時点で断る。
+        wsOptions.setClientRequestHandler(.main) { _, headers in
+            let origin = OriginPolicy.origin(in: headers)
+            let allowed = OriginPolicy.isAllowed(origin: origin)
+            if !allowed {
+                print("TranscriptionServer: 許可していない接続元を拒否しました: \(origin ?? "")")
+            }
+            return NWProtocolWebSocket.Response(status: allowed ? .accept : .reject, subprotocol: nil)
+        }
         let parameters = NWParameters.tcp
         parameters.defaultProtocolStack.applicationProtocols.insert(wsOptions, at: 0)
         parameters.allowLocalEndpointReuse = true
