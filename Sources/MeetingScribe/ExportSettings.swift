@@ -18,6 +18,14 @@ enum ExportSettings {
         }
     }
 
+    private static let markdownKey = "exportMarkdown"
+
+    /// .txt に加えて同じ名前の .md も書き出すか。未設定なら書き出す。
+    static var saveMarkdown: Bool {
+        get { UserDefaults.standard.object(forKey: markdownKey) as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: markdownKey) }
+    }
+
     static var defaultFolderURL: URL {
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         return documents.appendingPathComponent("MeetingScribe議事録", isDirectory: true)
