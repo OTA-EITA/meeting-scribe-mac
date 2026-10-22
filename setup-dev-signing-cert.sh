@@ -16,7 +16,18 @@ CERT_NAME="MeetingScribe Dev"
 WORK_DIR=$(mktemp -d)
 trap 'rm -rf "$WORK_DIR"' EXIT
 
-if security find-identity -v -p codesigning ~/Library/Keychains/login.keychain-db 2>/dev/null | grep -q "$CERT_NAME"; then
+KEYCHAIN=~/Library/Keychains/login.keychain-db
+
+# --recreate: 既存の証明書と鍵(と信頼設定)を消して作り直す。以前の版のスクリプトで
+# 作った鍵は、どのアプリからでも使える設定(-A)のままなので、作り直して塞ぐ。
+# 作り直すと署名が変わるため、画面/システム音声キャプチャの許可を一度与え直す必要がある。
+if [ "${1:-}" = "--recreate" ]; then
+    while security find-identity -v -p codesigning "$KEYCHAIN" 2>/dev/null | grep -q "$CERT_NAME"; do
+        security delete-identity -c "$CERT_NAME" -t "$KEYCHAIN"
+    done
+fi
+
+if security find-identity -v -p codesigning "$KEYCHAIN" 2>/dev/null | grep -q "$CERT_NAME"; then
     echo "署名証明書 '$CERT_NAME' は既に存在します。何もしません。"
     exit 0
 fi
@@ -34,10 +45,12 @@ openssl pkcs12 -export -out "$WORK_DIR/cert.p12" \
     -passout "pass:$PASSPHRASE"
 
 echo "ログインキーチェーンへインポートしています..."
-security import "$WORK_DIR/cert.p12" -k ~/Library/Keychains/login.keychain-db -P "$PASSPHRASE" -T /usr/bin/codesign -A
+# 秘密鍵を使えるのは codesign だけにする。-A(全アプリに許可)を付けると、
+# 他のプログラムが同じ証明書で署名し、このアプリへの許可を横取りできてしまう。
+security import "$WORK_DIR/cert.p12" -k "$KEYCHAIN" -P "$PASSPHRASE" -T /usr/bin/codesign
 
 echo "コード署名用に信頼設定しています..."
-security add-trusted-cert -p codeSign -k ~/Library/Keychains/login.keychain-db "$WORK_DIR/cert.pem"
+security add-trusted-cert -p codeSign -k "$KEYCHAIN" "$WORK_DIR/cert.pem"
 
 echo "完了。以下のアイデンティティが使えるようになりました:"
-security find-identity -v -p codesigning ~/Library/Keychains/login.keychain-db
+security find-identity -v -p codesigning "$KEYCHAIN"
