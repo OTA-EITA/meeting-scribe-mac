@@ -111,9 +111,14 @@ final class TranscriptClient: ObservableObject {
 
     /// 「相手1」などのラベルを実際の名前に付け替える。画面の全文と、
     /// 直前に自動保存した議事録(.txt と .md)の両方を書き直す。
-    func renameSpeakers(_ mapping: [String: String]) {
+    /// 保存先フォルダの外を指していたら、ファイルには触れない。
+    func renameSpeakers(_ mapping: [String: String], exportFolder: URL = ExportSettings.folderURL) {
         transcript = TranscriptFormatter.renameSpeakers(in: transcript, mapping: mapping)
         guard let lastExportURL else { return }
+        guard TranscriptFiles.isExportedTranscript(lastExportURL, in: exportFolder) else {
+            statusText = "保存先フォルダの外のファイルは書き直しません"
+            return
+        }
         do {
             let saved = try String(contentsOf: lastExportURL, encoding: .utf8)
             let renamed = TranscriptFormatter.renameSpeakers(in: saved, mapping: mapping)
