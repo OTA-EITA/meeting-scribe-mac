@@ -248,25 +248,29 @@ final class TranscriptionServer {
                 print("TranscriptionServer: 話者分離に失敗しました: \(error)")
             }
         }
-        let finalText = labelSegmentsHybrid(allSegments)
+        let finalText = labelSegmentsHybrid(allSegments, timestamps: true)
 
         broadcast(TranscriptMessage(type: "transcript", confirmedText: finalText, unconfirmedText: ""))
-        exportTranscript(finalText)
-        broadcast(TranscriptMessage(type: "status", status: "stopped"))
+        let exportedURL = exportTranscript(finalText)
+        // 保存先を UI に伝え、相手の名前を付け替えたときに同じファイルを書き直せるようにする。
+        broadcast(TranscriptMessage(type: "status", status: "stopped", message: exportedURL?.path))
     }
 
     /// 録音セッションの最終テキストを、設定された保存先フォルダへ議事録として自動書き出しする。
-    private func exportTranscript(_ text: String) {
-        guard !text.isEmpty else { return }
+    /// 設定に応じて同じ名前の Markdown も書き出す。書き出した .txt の場所を返す。
+    private func exportTranscript(_ text: String) -> URL? {
+        guard !text.isEmpty else { return nil }
         let folder = ExportSettings.folderURL
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             let formatter = DateFormatter()
             formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
             let fileURL = folder.appendingPathComponent("議事録_\(formatter.string(from: Date())).txt")
-            try text.write(to: fileURL, atomically: true, encoding: .utf8)
+            try TranscriptFiles.write(text, to: fileURL)
+            return fileURL
         } catch {
             print("TranscriptionServer: 議事録の自動書き出しに失敗しました: \(error)")
+            return nil
         }
     }
 
@@ -274,7 +278,8 @@ final class TranscriptionServer {
     /// 「相手」側だけ話者分離で相手1・相手2…と区別する。音源の判定材料が無い
     /// (MixedAudioProcessor 以外を使っている等)場合は、話者分離のみによる
     /// 従来のラベル付けにフォールバックする。幻聴のセグメントは先に取り除く。
-    func labelSegmentsHybrid(_ segments: [TranscriptionSegment]) -> String {
+    /// timestamps が true なら、各行の頭に録音開始からの経過時間 [hh:mm:ss] を付ける。
+    func labelSegmentsHybrid(_ segments: [TranscriptionSegment], timestamps: Bool = false) -> String {
         let segments = HallucinationFilter.filter(segments)
         guard !segments.isEmpty else { return "" }
         let mixedProcessor = whisperKit?.audioProcessor as? MixedAudioProcessor
@@ -285,11 +290,12 @@ final class TranscriptionServer {
         for segment in segments {
             let label = hybridLabel(for: segment, mixedProcessor: mixedProcessor)
             let gap = previousEnd.map { segment.start - $0 } ?? .infinity
+            let timestamp = timestamps ? "[\(TranscriptFormatter.elapsed(segment.start))] " : ""
             if label != previousLabel {
                 result += result.isEmpty ? "" : "\n"
-                result += "[\(label)] "
+                result += "\(timestamp)[\(label)] "
             } else if gap > pauseBreakThreshold {
-                result += "\n"
+                result += "\n\(timestamp)"
             }
             result += segment.text
             previousEnd = segment.end
