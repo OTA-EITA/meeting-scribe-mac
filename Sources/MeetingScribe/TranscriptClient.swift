@@ -114,6 +114,11 @@ final class TranscriptClient: ObservableObject {
         send(TranscriptMessage(type: "control", status: nil, confirmedText: nil, unconfirmedText: nil, message: nil, action: "stop"))
     }
 
+    /// ModelSettings に保存したモデルへ差し替えるようエンジンに頼む。
+    func reloadModel() {
+        send(TranscriptMessage(type: "control", status: nil, confirmedText: nil, unconfirmedText: nil, message: nil, action: "reloadModel"))
+    }
+
     private func send(_ message: TranscriptMessage) {
         guard let data = try? JSONEncoder().encode(message), let text = String(data: data, encoding: .utf8) else { return }
         client?.send(text: text)
