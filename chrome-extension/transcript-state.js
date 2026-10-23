@@ -11,6 +11,7 @@ export function initialState() {
     isModelLoading: true,
     isRecording: false,
     isDiarizing: false,
+    warningText: null,
     confirmedText: '',
     unconfirmedText: '',
     transcript: '',
@@ -30,6 +31,9 @@ export function applyMessage(state, message) {
     case 'error':
       next.statusText = message.message ?? 'エラーが発生しました';
       return next;
+    case 'warning':
+      next.warningText = message.message ?? null;
+      return next;
     default:
       return next;
   }
@@ -42,7 +46,7 @@ function applyStatus(state, message) {
     case 'ready':
       return { ...state, isModelLoading: false, isRecording: false, statusText: '準備完了。録音を開始してください。' };
     case 'recording':
-      return { ...state, isModelLoading: false, isRecording: true, confirmedText: '', unconfirmedText: '', statusText: '録音中…' };
+      return { ...state, isModelLoading: false, isRecording: true, confirmedText: '', unconfirmedText: '', warningText: null, statusText: '録音中…' };
     case 'diarizing':
       return { ...state, isRecording: false, isDiarizing: true, statusText: '話者を分析しています…' };
     case 'stopped': {
