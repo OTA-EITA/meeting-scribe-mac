@@ -59,3 +59,10 @@ test('resets live state when the connection drops', () => {
 test('builds control messages', () => {
   assert.deepEqual(JSON.parse(controlMessage('start')), { type: 'control', action: 'start' });
 });
+
+test('shows warnings and clears them when recording starts', () => {
+  let state = applyMessage(initialState(), { type: 'warning', message: 'システム音声を取れていません' });
+  assert.equal(state.warningText, 'システム音声を取れていません');
+  state = applyMessage(state, status('recording'));
+  assert.equal(state.warningText, null);
+});
