@@ -37,6 +37,13 @@ struct ContentView: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
 
+            if let warning = client.warningText {
+                Label(warning, systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout)
+                    .foregroundStyle(.orange)
+                    .frame(maxWidth: 420)
+            }
+
             Button(action: {
                 appState.toggleRecording()
             }) {
