@@ -15,6 +15,8 @@ final class TranscriptClient: ObservableObject {
     @Published var isModelLoading = true
     @Published var isRecording = false
     @Published var isDiarizing = false
+    /// 録音は続いているが、結果に影響する問題(システム音声を取れない等)。次の録音開始で消す。
+    @Published var warningText: String?
     /// 字幕オーバーレイの背景の不透明度(0〜1)。ユーザーがスライダーで調整できる。
     @Published var overlayOpacity: Double = 0.6
     /// 現在の録音セッション中の確定/未確定テキスト(ライブキャプション用)
@@ -59,7 +61,8 @@ final class TranscriptClient: ObservableObject {
         }
     }
 
-    private func handle(_ text: String) {
+    /// (internal: 単体テストから直接メッセージを渡せるようにするため private にしていない)
+    func handle(_ text: String) {
         guard let data = text.data(using: .utf8),
               let message = try? JSONDecoder().decode(TranscriptMessage.self, from: data) else { return }
         switch message.type {
@@ -74,6 +77,7 @@ final class TranscriptClient: ObservableObject {
                 statusText = "準備完了。録音を開始してください。"
             case "recording":
                 isRecording = true
+                warningText = nil
                 confirmedText = ""
                 unconfirmedText = ""
                 statusText = "録音中…"
@@ -95,6 +99,8 @@ final class TranscriptClient: ObservableObject {
             unconfirmedText = message.unconfirmedText ?? ""
         case "error":
             statusText = message.message ?? "エラーが発生しました"
+        case "warning":
+            warningText = message.message
         default:
             break
         }
