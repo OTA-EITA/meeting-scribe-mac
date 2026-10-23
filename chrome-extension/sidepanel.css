@@ -6,6 +6,8 @@
   --panel: #f5f5f7;
   --accent: #0a66d8;
   --danger: #d70015;
+  --warning-bg: #fff4e5;
+  --warning-fg: #8a4b00;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -16,6 +18,8 @@
     --panel: #2c2c2e;
     --accent: #409cff;
     --danger: #ff453a;
+    --warning-bg: #3d2a0f;
+    --warning-fg: #ffcc80;
   }
 }
 
@@ -36,6 +40,17 @@ body {
 h1 { margin: 0; font-size: 18px; }
 
 #status { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+
+#warning {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--warning-bg);
+  color: var(--warning-fg);
+  font-size: 13px;
+}
+
+#warning[hidden] { display: none; }
 
 button {
   font: inherit;
