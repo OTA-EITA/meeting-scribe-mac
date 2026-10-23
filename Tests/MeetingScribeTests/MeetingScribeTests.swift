@@ -338,3 +338,15 @@ struct TranscriptClientRenameGuardTests {
         #expect(try String(contentsOf: outside, encoding: .utf8) == "[相手1] そのまま")
     }
 }
+
+@MainActor
+struct TranscriptClientWarningTests {
+    @Test func showsWarningsAndClearsThemWhenRecordingStarts() {
+        let client = TranscriptClient()
+        client.handle(#"{"type":"warning","message":"システム音声を取れていません"}"#)
+        #expect(client.warningText == "システム音声を取れていません")
+
+        client.handle(#"{"type":"status","status":"recording"}"#)
+        #expect(client.warningText == nil)
+    }
+}
