@@ -52,6 +52,10 @@ final class MixedAudioProcessor: NSObject, AudioProcessing {
     private var sourceEnergyTimeline: [(startTime: Float, endTime: Float, mic: Float, system: Float)] = []
     private var cumulativeSampleCount: Int = 0
 
+    /// システム音声のキャプチャを開始できなかったときに呼ぶ。マイクだけで続けると
+    /// 相手の声が丸ごと抜けるので、エンジンから画面へ知らせるために使う。
+    var onSystemAudioFailure: ((Error) -> Void)?
+
     override init() {
         if #available(macOS 13.0, *) {
             systemAudio = SystemAudioCapture()
@@ -188,6 +192,7 @@ final class MixedAudioProcessor: NSObject, AudioProcessing {
             } catch {
                 // 画面収録権限が無い、または失敗した場合はマイクのみで続行する。
                 debugLog("MixedAudioProcessor: システム音声キャプチャを開始できませんでした。マイクのみで続行します: \(error)")
+                onSystemAudioFailure?(error)
             }
         }
     }
