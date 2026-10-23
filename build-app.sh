@@ -36,6 +36,7 @@ mkdir -p "$APP_DIR/Contents/Resources"
 cp "$BIN_PATH/$APP_NAME" "$APP_DIR/Contents/MacOS/$APP_NAME"
 cp "Sources/$APP_NAME/Info.plist" "$APP_DIR/Contents/Info.plist"
 
-codesign --force --deep --sign "$SIGNING_IDENTITY" "$APP_DIR" >/dev/null 2>&1
+echo "Signing with $SIGNING_IDENTITY (the first run asks for keychain access; choose Always Allow)..."
+codesign --force --deep --sign "$SIGNING_IDENTITY" "$APP_DIR" >/dev/null
 
 echo "Built: $APP_DIR"
