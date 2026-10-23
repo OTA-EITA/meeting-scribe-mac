@@ -5,6 +5,7 @@ const ENGINE_URL = 'ws://127.0.0.1:8765';
 const RECONNECT_DELAY_MS = 1000;
 
 const statusEl = document.getElementById('status');
+const warningEl = document.getElementById('warning');
 const recordButton = document.getElementById('record');
 const transcriptEl = document.getElementById('transcript');
 const copyButton = document.getElementById('copy');
@@ -36,6 +37,8 @@ function update(next) {
 
 function render() {
   statusEl.textContent = state.statusText;
+  warningEl.textContent = state.warningText ?? '';
+  warningEl.hidden = !state.warningText;
 
   recordButton.textContent = state.isRecording ? '停止する' : '録音を開始';
   recordButton.classList.toggle('recording', state.isRecording);
