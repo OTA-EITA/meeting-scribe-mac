@@ -16,6 +16,8 @@ let package = Package(
                 .product(name: "WhisperKit", package: "WhisperKit"),
                 .product(name: "SpeakerKit", package: "WhisperKit")
             ],
+            // Info.plist は下のリンカ設定で実行ファイルに埋め込むので、リソースとしては扱わない。
+            exclude: ["Info.plist"],
             linkerSettings: [
                 // SPM 実行ファイルには .app バンドルの Info.plist が無く、そのままでは
                 // マイクへのアクセス要求（TCC）がクラッシュする。実行ファイルの
