@@ -79,30 +79,42 @@ final class TranscriptionServer {
 
     private func accept(_ connection: NWConnection) {
         connections.append(connection)
-        var receivingStarted = false
+        // start(queue: .main) なので状態の通知はメインスレッドで届く。
         connection.stateUpdateHandler = { [weak self] state in
-            switch state {
-            case .ready:
-                guard !receivingStarted else { return }
-                receivingStarted = true
-                WebSocketIO.receiveLoop(on: connection) { text in
-                    Task { @MainActor in self?.handleIncoming(text) }
-                } onClose: {
-                    Task { @MainActor in
-                        connection.cancel()
-                        self?.connections.removeAll { $0 === connection }
-                    }
-                }
-                Task { @MainActor in self?.sendCurrentStatus(to: connection) }
-            case .failed, .cancelled:
-                Task { @MainActor in
-                    self?.connections.removeAll { $0 === connection }
-                }
-            default:
-                break
+            MainActor.assumeIsolated {
+                self?.connection(connection, didChangeTo: state)
             }
         }
         connection.start(queue: .main)
+    }
+
+    /// 受信ループを始めた接続。.ready が二度届いても受信ループを重ねて始めないようにする。
+    private var receivingConnections: Set<ObjectIdentifier> = []
+
+    private func connection(_ connection: NWConnection, didChangeTo state: NWConnection.State) {
+        let id = ObjectIdentifier(connection)
+        switch state {
+        case .ready:
+            guard receivingConnections.insert(id).inserted else { return }
+            WebSocketIO.receiveLoop(on: connection) { [weak self] text in
+                Task { @MainActor in self?.handleIncoming(text) }
+            } onClose: { [weak self] in
+                Task { @MainActor in
+                    connection.cancel()
+                    self?.forget(connection)
+                }
+            }
+            sendCurrentStatus(to: connection)
+        case .failed, .cancelled:
+            forget(connection)
+        default:
+            break
+        }
+    }
+
+    private func forget(_ connection: NWConnection) {
+        connections.removeAll { $0 === connection }
+        receivingConnections.remove(ObjectIdentifier(connection))
     }
 
     private func handleIncoming(_ text: String) {
