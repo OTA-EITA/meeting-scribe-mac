@@ -369,3 +369,15 @@ struct DiarizationScheduleTests {
         }
     }
 }
+
+struct RawWebSocketClientFrameTests {
+    @Test(arguments: [0, 125, 65_535, 16 * 1024 * 1024])
+    func acceptsReasonableFrameLengths(_ length: Int) {
+        #expect(RawWebSocketClient.isAcceptableFrameLength(length))
+    }
+
+    @Test(arguments: [-1, Int.min, 16 * 1024 * 1024 + 1, Int.max])
+    func rejectsNegativeOrHugeFrameLengths(_ length: Int) {
+        #expect(!RawWebSocketClient.isAcceptableFrameLength(length))
+    }
+}
