@@ -2,7 +2,7 @@
 // アプリ内の TranscriptClient.swift と同じ規則で動かす。画面の操作から切り離し、
 // Node の単体テストで確かめられるようにしている。
 
-const NOT_RUNNING = 'MeetingScribe が起動していません。Mac のアプリを起動してください。';
+const NOT_RUNNING = 'MeetingScribe が起動していません。アプリを起動してください。';
 
 export function initialState() {
   return {
@@ -48,7 +48,8 @@ function applyStatus(state, message) {
     case 'recording':
       return { ...state, isModelLoading: false, isRecording: true, confirmedText: '', unconfirmedText: '', warningText: null, statusText: '録音中…' };
     case 'diarizing':
-      return { ...state, isRecording: false, isDiarizing: true, statusText: '話者を分析しています…' };
+      // 録音を止めた後の処理中。Mac は話者の分析、Windows は文字起こしで、エンジンが message で中身を伝える。
+      return { ...state, isRecording: false, isDiarizing: true, statusText: message.message ?? '話者を分析しています…' };
     case 'stopped': {
       const session = (state.confirmedText + state.unconfirmedText).trim();
       return {

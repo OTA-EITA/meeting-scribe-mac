@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "MeetingScribe",
-  "description": "Live captions and recording controls for the MeetingScribe Mac app.",
+  "description": "Live captions and recording controls for the MeetingScribe app (Mac / Windows).",
   "version": "0.1.0",
   "minimum_chrome_version": "116",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1bvgiwCB59Lx1UUzcfEnqpLgURzGnovinR84zZ0tWa8y6rzymvTqEVON0gW7eotPbna2M4k7X7Mb7FmFYKdz6mE5rWBjgLPx8TTwPbWLei4qcu2GcJks6eSq5N6lbjKCETG4NV96MHqGR8jc93bfIKfiX8OMCK99lIM/UqNvAZAvwX/IVyBZRnwSsHUDD9bLMxKkkoX4j/X0Xg1FIZLE6zADYFVu+v4q28XoAuyPRS1wfHbA9zr3T+7TiZjfRJkBcZjsr6fFaR7H4W1de8emK3jJ+Hb0PEkf9no2JBdxBdhCVQAla8+DQKKIv3xFspjMYdGHN4QjeMHs8hHerbqzbwIDAQAB",
