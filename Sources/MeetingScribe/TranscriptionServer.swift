@@ -33,7 +33,6 @@ final class TranscriptionServer {
     /// (internal: 単体テストから直接設定できるようにするため private にしていない)
     var latestDiarization: DiarizationResult?
     private var diarizationTask: Task<Void, Never>?
-    private let diarizationInterval: UInt64 = 4_000_000_000 // 4秒ごと
 
     /// pyannote の話者IDを「相手1」「相手2」…という表示用の番号に固定するための
     /// マッピング。セッション(録音)ごとにリセットする。
@@ -217,20 +216,27 @@ final class TranscriptionServer {
     /// 録音中、数秒おきに録音全体(その時点まで)に対して話者分離をやり直し、
     /// 結果を latestDiarization に反映する。次にAudioStreamTranscriberから
     /// コールバックが来た時点でライブ配信のテキストにも話者ラベルが付くようになる。
-    /// 録音が長くなるほど1回あたりの処理時間は伸びるが、間隔を空けているため
-    /// 通常の会議の長さでは実用上問題にならない想定。
+    /// 録音が長くなるほど1回あたりの処理時間は伸びるので、間隔は
+    /// DiarizationSchedule で前回の処理時間に応じて広げる。
+    /// 話者分離モデルは文字起こしモデルより後に読み込み終わるので、録音開始の時点では
+    /// まだ無いことがある。開始時には確かめず、やり直すたびに有無を見る。
     private func startPeriodicDiarization() {
-        guard speakerKit != nil else { return }
         diarizationTask = Task { [weak self] in
+            var delay = DiarizationSchedule.minimumDelay
             while let self, !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: self.diarizationInterval)
+                try? await Task.sleep(for: .seconds(delay))
                 guard !Task.isCancelled, self.isRecording,
                       let whisperKit = self.whisperKit, let speakerKit = self.speakerKit else { continue }
                 let snapshot = Array(whisperKit.audioProcessor.audioSamples)
                 guard snapshot.count > 16_000 else { continue } // 1秒未満はスキップ
+                let started = ContinuousClock.now
                 if let result = try? await speakerKit.diarize(audioArray: snapshot) {
                     self.latestDiarization = result
                 }
+                let elapsed = started.duration(to: .now)
+                let runSeconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
+                delay = DiarizationSchedule.delay(afterRunTaking: runSeconds)
+                debugLog("TranscriptionServer: 話者分離 \(snapshot.count / 16_000)秒分に\(String(format: "%.2f", runSeconds))秒。次は\(String(format: "%.1f", delay))秒後")
             }
         }
     }
