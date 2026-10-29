@@ -350,3 +350,22 @@ struct TranscriptClientWarningTests {
         #expect(client.warningText == nil)
     }
 }
+
+struct DiarizationScheduleTests {
+    @Test(arguments: [
+        (0.0, 4.0),
+        (1.0, 4.0),
+        (2.0, 6.0),
+        (10.0, 30.0)
+    ])
+    func waitsLongerAsEachRunGetsSlower(_ runSeconds: Double, _ expectedDelay: Double) {
+        #expect(DiarizationSchedule.delay(afterRunTaking: runSeconds) == expectedDelay)
+    }
+
+    @Test func keepsDiarizationToAQuarterOfTheTime() {
+        for run in stride(from: 0.5, through: 60, by: 0.5) {
+            let delay = DiarizationSchedule.delay(afterRunTaking: run)
+            #expect(run / (run + delay) <= 0.25 + 1e-9)
+        }
+    }
+}
