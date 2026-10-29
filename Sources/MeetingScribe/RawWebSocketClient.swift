@@ -6,7 +6,15 @@ import Darwin
 /// NWConnection通信を中断させてしまう(ECONNABORTED)ため、Network.framework
 /// を経由しない実装にしている。サーバー側(NWListener)は問題なく動作するため
 /// クライアント側のみをこの実装に置き換えている。
-final class RawWebSocketClient {
+///
+/// 接続は呼び出し元のスレッド、受信は専用スレッド、切断はメインスレッドから行われる。
+/// ソケットと実行中フラグは stateLock で守り、ソケットは closeSocket で一度だけ閉じる。
+/// onText / onClose は connect() の前に設定し、以後は変えない。
+final class RawWebSocketClient: @unchecked Sendable {
+    /// 受け取るフレームの長さの上限。議事録の全文でも十分に収まる大きさにし、
+    /// 壊れたデータや悪意のあるデータで巨大な領域を確保しないようにする。
+    static let maxFrameLength = 16 * 1024 * 1024
+
     private var socketFD: Int32 = -1
     private let stateLock = NSLock()
     private var isRunning = false
@@ -19,6 +27,10 @@ final class RawWebSocketClient {
     init(host: String, port: UInt16) {
         self.host = host
         self.port = port
+    }
+
+    static func isAcceptableFrameLength(_ length: Int) -> Bool {
+        length >= 0 && length <= maxFrameLength
     }
 
     /// 接続とハンドシェイクを行い、成功したらバックグラウンドスレッドで受信を開始する。
@@ -41,18 +53,18 @@ final class RawWebSocketClient {
             Darwin.close(fd)
             return false
         }
+        stateLock.lock()
         socketFD = fd
+        stateLock.unlock()
 
         let key = Data((0..<16).map { _ in UInt8.random(in: 0...255) }).base64EncodedString()
         let request = "GET / HTTP/1.1\r\nHost: \(host):\(port)\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: \(key)\r\nSec-WebSocket-Version: 13\r\n\r\n"
         guard let requestData = request.data(using: .utf8), sendRaw(requestData) else {
-            Darwin.close(fd)
-            socketFD = -1
+            closeSocket()
             return false
         }
         guard readHandshakeResponse() != nil else {
-            Darwin.close(fd)
-            socketFD = -1
+            closeSocket()
             return false
         }
 
@@ -100,21 +112,36 @@ final class RawWebSocketClient {
     }
 
     func disconnect() {
+        closeSocket()
+    }
+
+    /// ソケットを閉じる。受信スレッドと切断の呼び出しが重なっても一度だけ閉じ、
+    /// 閉じた後に同じ番号で開かれた別のファイルを閉じてしまわないようにする。
+    private func closeSocket() {
         stateLock.lock()
+        let fd = socketFD
+        socketFD = -1
         isRunning = false
         stateLock.unlock()
-        if socketFD >= 0 {
-            Darwin.close(socketFD)
-            socketFD = -1
+        if fd >= 0 {
+            Darwin.close(fd)
         }
     }
 
+    private var currentSocket: Int32 {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return socketFD
+    }
+
     private func sendRaw(_ data: Data) -> Bool {
+        let fd = currentSocket
+        guard fd >= 0 else { return false }
         var totalSent = 0
         let ok: Bool = data.withUnsafeBytes { (rawBuf: UnsafeRawBufferPointer) in
             guard let base = rawBuf.bindMemory(to: UInt8.self).baseAddress else { return false }
             while totalSent < data.count {
-                let n = Darwin.send(socketFD, base + totalSent, data.count - totalSent, 0)
+                let n = Darwin.send(fd, base + totalSent, data.count - totalSent, 0)
                 if n <= 0 { return false }
                 totalSent += n
             }
@@ -125,12 +152,14 @@ final class RawWebSocketClient {
 
     private func readExact(_ count: Int) -> Data? {
         guard count > 0 else { return Data() }
+        let fd = currentSocket
+        guard fd >= 0 else { return nil }
         var buffer = Data()
         var remaining = count
         var tmp = [UInt8](repeating: 0, count: count)
         while remaining > 0 {
             let n = tmp.withUnsafeMutableBytes { ptr -> Int in
-                Darwin.recv(socketFD, ptr.baseAddress, remaining, 0)
+                Darwin.recv(fd, ptr.baseAddress, remaining, 0)
             }
             if n <= 0 { return nil }
             buffer.append(contentsOf: tmp[0..<n])
@@ -140,11 +169,13 @@ final class RawWebSocketClient {
     }
 
     private func readHandshakeResponse() -> String? {
+        let fd = currentSocket
+        guard fd >= 0 else { return nil }
         var responseBytes = [UInt8]()
         var byte: UInt8 = 0
         while true {
             let n = withUnsafeMutablePointer(to: &byte) { ptr -> Int in
-                Darwin.recv(socketFD, ptr, 1, 0)
+                Darwin.recv(fd, ptr, 1, 0)
             }
             if n <= 0 { return nil }
             responseBytes.append(byte)
@@ -175,6 +206,7 @@ final class RawWebSocketClient {
                 guard let ext = readExact(8) else { break }
                 length = ext.reduce(0) { ($0 << 8) | Int($1) }
             }
+            guard Self.isAcceptableFrameLength(length) else { break }
             var maskKey: [UInt8] = []
             if masked {
                 guard let m = readExact(4) else { break }
@@ -193,13 +225,7 @@ final class RawWebSocketClient {
                 onText?(text)
             }
         }
-        stateLock.lock()
-        isRunning = false
-        stateLock.unlock()
-        if socketFD >= 0 {
-            Darwin.close(socketFD)
-            socketFD = -1
-        }
+        closeSocket()
         onClose?()
     }
 }
