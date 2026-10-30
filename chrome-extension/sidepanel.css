@@ -101,3 +101,11 @@ footer { display: flex; align-items: center; gap: 8px; }
   direction: rtl;
   text-align: left;
 }
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
