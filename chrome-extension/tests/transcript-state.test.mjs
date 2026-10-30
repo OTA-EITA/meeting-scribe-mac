@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { initialState, applyMessage, disconnected, displayedText, controlMessage } from '../transcript-state.js';
+import { initialState, applyMessage, disconnected, displayedText, controlMessage, captionLines } from '../transcript-state.js';
 
 const status = (s, message) => ({ type: 'status', status: s, ...(message ? { message } : {}) });
 
@@ -65,4 +65,19 @@ test('shows warnings and clears them when recording starts', () => {
   assert.equal(state.warningText, 'システム音声を取れていません');
   state = applyMessage(state, status('recording'));
   assert.equal(state.warningText, null);
+});
+
+test('captions show the last live lines only while recording', () => {
+  let state = applyMessage(initialState(), status('recording'));
+  state = applyMessage(state, { type: 'transcript', confirmedText: '[自分] 一行目\n[相手1] 二行目\n', unconfirmedText: '[相手1] 三行目' });
+  assert.deepEqual(captionLines(state), ['[相手1] 二行目', '[相手1] 三行目']);
+  state = applyMessage(state, status('stopped'));
+  assert.deepEqual(captionLines(state), []);
+});
+
+test('captions keep the end of long lines', () => {
+  let state = applyMessage(initialState(), status('recording'));
+  state = applyMessage(state, { type: 'transcript', confirmedText: 'あ'.repeat(70) + 'い'.repeat(30), unconfirmedText: '' });
+  const [line] = captionLines(state);
+  assert.equal(line, '…' + 'あ'.repeat(50) + 'い'.repeat(30));
 });
