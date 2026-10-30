@@ -80,7 +80,7 @@ tccutil reset ScreenCapture local.meetingscribe
 
 ## Chrome 拡張機能
 
-`chrome-extension/` は、Chrome のサイドパネルから字幕を見て録音を開始・停止するための拡張機能です。文字起こしは Mac アプリが行い、拡張機能はローカルの WebSocket (`ws://127.0.0.1:8765`) でつなぐ画面だけを受け持ちます。使うときは Mac アプリを起動しておいてください。
+`chrome-extension/` は、Chrome のサイドパネルから字幕を見て録音を開始・停止するための拡張機能です。文字起こしは Mac アプリが行い、拡張機能はローカルの WebSocket (`ws://127.0.0.1:8765`) でつなぐ画面だけを受け持ちます。使うときは Mac アプリを起動しておいてください。Windows 版のアプリも同じ約束事で待ち受けるので、Windows でもこの拡張機能をそのまま使えます。
 
 1. Chrome で `chrome://extensions` を開き、右上の「デベロッパー モード」をオンにする
 2. 「パッケージ化されていない拡張機能を読み込む」で `chrome-extension` フォルダを選ぶ

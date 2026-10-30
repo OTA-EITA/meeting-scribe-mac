@@ -81,3 +81,12 @@ test('captions keep the end of long lines', () => {
   const [line] = captionLines(state);
   assert.equal(line, '…' + 'あ'.repeat(50) + 'い'.repeat(30));
 });
+
+test('shows the engine message while processing after recording', () => {
+  let state = applyMessage(initialState(), { type: 'status', status: 'recording' });
+  state = applyMessage(state, { type: 'status', status: 'diarizing' });
+  assert.equal(state.statusText, '話者を分析しています…');
+  state = applyMessage(state, { type: 'status', status: 'diarizing', message: '文字起こししています…' });
+  assert.equal(state.statusText, '文字起こししています…');
+  assert.equal(state.isDiarizing, true);
+});
