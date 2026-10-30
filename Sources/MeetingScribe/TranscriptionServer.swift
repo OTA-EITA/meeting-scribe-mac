@@ -290,8 +290,11 @@ final class TranscriptionServer {
         broadcast(TranscriptMessage(type: "status", status: "stopped", message: exportedURL?.path))
     }
 
+    static let plaintextFallbackWarning = "暗号鍵を読めなかったため、この議事録は暗号化せずに保存しました。"
+
     /// 録音セッションの最終テキストを、設定された保存先フォルダへ議事録として自動書き出しする。
-    /// 設定に応じて同じ名前の Markdown も書き出す。書き出した .txt の場所を返す。
+    /// 設定に応じて暗号化し、または同じ名前の Markdown も書き出す。書き出したファイルの場所を返す。
+    /// 暗号鍵を読めないときは、議事録を失わないよう平文で保存して警告を出す。
     private func exportTranscript(_ text: String) -> URL? {
         guard !text.isEmpty else { return nil }
         let folder = ExportSettings.folderURL
@@ -300,8 +303,13 @@ final class TranscriptionServer {
             let formatter = DateFormatter()
             formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
             let fileURL = folder.appendingPathComponent("議事録_\(formatter.string(from: Date())).txt")
-            try TranscriptFiles.write(text, to: fileURL)
-            return fileURL
+            do {
+                return try TranscriptFiles.write(text, to: fileURL)
+            } catch where ExportSettings.encrypt {
+                print("TranscriptionServer: 議事録を暗号化できませんでした: \(error)")
+                broadcast(TranscriptMessage(type: "warning", message: Self.plaintextFallbackWarning))
+                return try TranscriptFiles.write(text, to: fileURL, encrypt: false)
+            }
         } catch {
             print("TranscriptionServer: 議事録の自動書き出しに失敗しました: \(error)")
             return nil
