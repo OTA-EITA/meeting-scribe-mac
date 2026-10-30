@@ -1,8 +1,9 @@
-import { initialState, applyMessage, disconnected, controlMessage } from './transcript-state.js';
+import { initialState, applyMessage, disconnected, controlMessage, captionLines } from './transcript-state.js';
 
 // エンジン(TranscriptionServer)の待ち受け先。アプリ側の TranscriptionServer.port と合わせる。
 const ENGINE_URL = 'ws://127.0.0.1:8765';
 const RECONNECT_DELAY_MS = 1000;
+const MEET_TABS = 'https://meet.google.com/*';
 
 const statusEl = document.getElementById('status');
 const warningEl = document.getElementById('warning');
@@ -10,9 +11,11 @@ const recordButton = document.getElementById('record');
 const transcriptEl = document.getElementById('transcript');
 const copyButton = document.getElementById('copy');
 const savedEl = document.getElementById('saved');
+const meetCaptionsEl = document.getElementById('meet-captions');
 
 let state = initialState();
 let socket = null;
+let lastCaptionKey = null;
 
 function connect() {
   socket = new WebSocket(ENGINE_URL);
@@ -70,6 +73,20 @@ function render() {
   copyButton.disabled = !state.transcript;
   savedEl.textContent = state.lastExportPath ? `保存先: ${state.lastExportPath}` : '';
   savedEl.title = state.lastExportPath ?? '';
+  relayCaptions();
+}
+
+/// 字幕が変わったときだけ、開いている Google Meet のタブへ送る。
+/// 拡張機能を入れる前から開いていたタブには受け手がいないので、送れなくても無視する。
+async function relayCaptions() {
+  const lines = meetCaptionsEl.checked ? captionLines(state) : [];
+  const key = JSON.stringify(lines);
+  if (key === lastCaptionKey) return;
+  lastCaptionKey = key;
+  const tabs = await chrome.tabs.query({ url: MEET_TABS });
+  for (const tab of tabs) {
+    chrome.tabs.sendMessage(tab.id, { type: 'meetingscribe-captions', lines }).catch(() => {});
+  }
 }
 
 recordButton.addEventListener('click', () => {
@@ -83,5 +100,12 @@ copyButton.addEventListener('click', async () => {
   setTimeout(() => { copyButton.textContent = 'コピー'; }, 1500);
 });
 
+meetCaptionsEl.addEventListener('change', () => {
+  chrome.storage.local.set({ meetCaptions: meetCaptionsEl.checked });
+  relayCaptions();
+});
+
+const { meetCaptions } = await chrome.storage.local.get({ meetCaptions: true });
+meetCaptionsEl.checked = meetCaptions;
 render();
 connect();
