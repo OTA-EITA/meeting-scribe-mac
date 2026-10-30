@@ -8,6 +8,8 @@ struct ContentView: View {
     @State private var userDisplayName = UserProfile.displayName
     @State private var selectedModel = ModelSettings.current
     @State private var saveMarkdown = ExportSettings.saveMarkdown
+    @State private var encrypt = ExportSettings.encrypt
+    @State private var openedTranscript: OpenedTranscript?
     /// 「相手1」などのラベルごとに入力中の名前
     @State private var speakerNames: [String: String] = [:]
 
@@ -96,6 +98,7 @@ struct ContentView: View {
             HStack {
                 Button("保存…") { saveTranscript(client.transcript) }
                     .disabled(client.transcript.isEmpty)
+                Button("議事録を開く…") { openTranscript() }
                 Spacer()
                 Button("クリア") { client.transcript = "" }
                     .disabled(client.transcript.isEmpty)
@@ -165,15 +168,43 @@ struct ContentView: View {
                     Spacer()
                     Button("変更…") { chooseExportFolder() }
                 }
+                Toggle("暗号化して保存 (.txt.enc)", isOn: $encrypt)
+                    .font(.caption)
+                    .onChange(of: encrypt) { _, newValue in
+                        ExportSettings.encrypt = newValue
+                    }
                 Toggle("Markdown (.md) でも保存", isOn: $saveMarkdown)
                     .font(.caption)
+                    .disabled(encrypt)
                     .onChange(of: saveMarkdown) { _, newValue in
                         ExportSettings.saveMarkdown = newValue
                     }
+                if encrypt {
+                    Text("暗号化した議事録は「議事録を開く…」で読み、そこから .md にも書き出せます。")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .padding(24)
         .frame(minWidth: 480, minHeight: 480)
+        .sheet(item: $openedTranscript) { transcript in
+            TranscriptViewer(transcript: transcript)
+        }
+    }
+
+    private func openTranscript() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.directoryURL = exportFolder
+        panel.prompt = "開く"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            openedTranscript = OpenedTranscript(url: url, text: try TranscriptFiles.read(url))
+        } catch {
+            client.statusText = "議事録を開けませんでした: \(error.localizedDescription)"
+        }
     }
 
     private func saveTranscript(_ text: String) {
