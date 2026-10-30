@@ -86,6 +86,13 @@ tccutil reset ScreenCapture local.meetingscribe
 2. 「パッケージ化されていない拡張機能を読み込む」で `chrome-extension` フォルダを選ぶ
 3. ツールバーの MeetingScribe のアイコンを押すと、サイドパネルが開く
 
+サイドパネルの「Google Meet のタブに字幕を重ねる」がオンのとき、録音中は開いている Google Meet のタブの下のほうに、最後の2行を字幕として重ねます。
+
+- 字幕はサイドパネルから Meet のタブへ送ります。サイドパネルを閉じると字幕も止まります。
+- Meet のページは字幕の中身を読めません。字幕は閉じた Shadow DOM に置いています。
+- 拡張機能が読み書きできるサイトは `meet.google.com` だけです。他のサイトには何も出しません。
+- 拡張機能を入れる前から開いていた Meet のタブには出ません。そのタブを読み込み直してください。
+
 ブラウザの WebSocket には CORS の制限がかからないため、エンジンは接続時の Origin ヘッダーを確かめ、この拡張機能以外のウェブサイトからの接続を断ります。拡張機能の ID は `manifest.json` の `key` で `pjkgdgbmgcoooolfkjjgkinidnccojhj` に固定しており、`OriginPolicy.swift` の値と一致させています。
 
 拡張機能の単体テストは次のコマンドで実行します。
