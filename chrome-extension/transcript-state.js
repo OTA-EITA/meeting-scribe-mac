@@ -96,3 +96,17 @@ export function displayedText(state) {
 export function controlMessage(action) {
   return JSON.stringify({ type: 'control', action });
 }
+
+const CAPTION_LINE_LENGTH = 80;
+
+/// Google Meet に重ねる字幕の行。録音中のライブの文字の最後の数行だけを出し、
+/// 録音していないときは何も出さない。長い行は末尾だけを残す。
+export function captionLines(state, maxLines = 2) {
+  if (!state.isRecording) return [];
+  return (state.confirmedText + state.unconfirmedText)
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line)
+    .slice(-maxLines)
+    .map((line) => (line.length > CAPTION_LINE_LENGTH ? `…${line.slice(-CAPTION_LINE_LENGTH)}` : line));
+}
