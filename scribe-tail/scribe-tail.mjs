@@ -55,6 +55,8 @@ function notice(text) {
 let linesWhileRecording = 0;
 // 停止後に送り直される全文を待っているところ
 let afterStop = false;
+// エンジンが録音中かどうか。つないだ直後は、状態より先に文字起こしが届くことがある
+let recording = false;
 
 // 録音中の相手のラベルは「相手」「相手1」…か、話者が分からないときの「不明」
 const OTHERS_LABEL = /^(相手|不明)/;
@@ -84,6 +86,7 @@ const STATUS_TEXT = {
 function handle(message) {
   switch (message.type) {
     case "transcript":
+      if (!afterStop) recording = true;
       if (afterStop) {
         // 停止後の全文。録音中に流し終えていれば二重になるので捨て、何も流していなければここで流す
         if (linesWhileRecording === 0) {
@@ -97,8 +100,12 @@ function handle(message) {
       break;
     case "status":
       if (message.status === "recording") {
-        diff.reset();
-        linesWhileRecording = 0;
+        // もう録音中として流していれば数え直さない。数え直すと同じ内容がもう一度流れる
+        if (!recording) {
+          diff.reset();
+          linesWhileRecording = 0;
+        }
+        recording = true;
         afterStop = false;
         notice(STATUS_TEXT.recording);
       } else if (message.status === "diarizing") {
@@ -106,8 +113,10 @@ function handle(message) {
         diff.flush();
         diff.reset();
         afterStop = true;
+        recording = false;
         notice(STATUS_TEXT.diarizing);
       } else if (message.status === "stopped") {
+        recording = false;
         diff.flush();
         notice(message.message ? `録音停止 保存先: ${message.message}` : "録音停止");
       } else if (STATUS_TEXT[message.status]) {
@@ -147,6 +156,9 @@ function connect() {
 
   socket.addEventListener("close", () => {
     diff.flush();
+    // つなぎ直したら、届いた文字起こしをはじめから数える
+    diff.reset();
+    recording = false;
     if (opened) notice("エンジンとの接続が切れました。つなぎ直します");
     else if (!waitingNoticed) {
       notice(`エンジンが起動していません (${url})。起動を待ちます`);
