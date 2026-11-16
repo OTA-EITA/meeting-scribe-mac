@@ -39,6 +39,11 @@ final class ProcessTapAudioCapture: SystemAudioSource {
         description.name = "MeetingScribe"
         description.isPrivate = true
         description.muteBehavior = .unmuted
+        // 出力先を選んでいれば、そのデバイスへ送られる音だけを取る
+        let output = AudioDeviceSettings.output
+        if AudioDeviceSettings.hasChosenOutput, let output {
+            description.deviceUID = output.uid
+        }
 
         try check(AudioHardwareCreateProcessTap(description, &tapID), "プロセスタップを作れませんでした")
 
@@ -49,9 +54,8 @@ final class ProcessTapAudioCapture: SystemAudioSource {
                 throw Self.error("タップの音声形式を扱えませんでした")
             }
 
-            // タップは集約デバイスに組み込んで読む。主デバイスには今の出力先を使う
-            let outputDevice = try Self.property(AudioObjectID(kAudioObjectSystemObject), kAudioHardwarePropertyDefaultSystemOutputDevice, as: AudioObjectID(kAudioObjectUnknown))
-            let outputUID = try Self.property(outputDevice, kAudioDevicePropertyDeviceUID, as: "" as CFString) as String
+            // タップは集約デバイスに組み込んで読む。主デバイスには出力先を使う
+            guard let outputUID = output?.uid else { throw Self.error("出力先のデバイスが見つかりませんでした") }
             let aggregate: [String: Any] = [
                 kAudioAggregateDeviceNameKey: "MeetingScribe Tap",
                 kAudioAggregateDeviceUIDKey: UUID().uuidString,
