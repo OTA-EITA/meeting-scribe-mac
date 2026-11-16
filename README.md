@@ -18,7 +18,7 @@
 - **Swift / SwiftUI**: macOS ネイティブアプリとして実装。
 - **[WhisperKit](https://github.com/argmaxinc/WhisperKit)**: Apple Silicon 向けに CoreML 最適化された、純 Swift の音声認識ライブラリ。`whisper.cpp` の手動ビルドが不要で、SPM 依存として組み込める。文字起こしには `small` モデルを使用(`base` は日本語での誤認識・幻聴が多かったため変更)。リアルタイム処理には WhisperKit 標準の `AudioStreamTranscriber` を使用。
 - **[SpeakerKit](https://github.com/argmaxinc/WhisperKit)** (WhisperKit と同じリポジトリに同梱): pyannote ベースのオンデバイス話者分離。録音停止後にまとめて解析し、確定した文字起こしセグメントへ話者ラベルを付与する。
-- **ScreenCaptureKit**: システム出力音声のキャプチャに使用。マイクだけでは、イヤホン使用時に会議相手の声を拾えないため導入した。
+- **Core Audio のプロセスタップ**: システム出力音声のキャプチャに使用。マイクだけでは、イヤホン使用時に会議相手の声を拾えないため導入した。音はイヤホンへ送られる前に取る。以前は ScreenCaptureKit を使っていたが、「画面とシステムオーディオの収録」の許可が要り、macOS 15 以降はその許可を定期的に確かめ直してくるため切り替えた。プロセスタップは「システムオーディオ録音のみ」の許可で済み、一度許可すれば聞き直されない。macOS 14.2 より前では ScreenCaptureKit のまま動く。
 - **ローカル WebSocket (`Network.framework` のサーバー側 + 自前実装の生ソケットクライアント)**: 録音・文字起こしを行うエンジン(`TranscriptionServer`)と、メインウィンドウ・字幕オーバーレイという複数の UI 表示先を疎結合にするための内部通信路として採用。詳細は後述の既知の制限を参照。
 
 ## ビルド・実行方法
@@ -37,6 +37,14 @@ cd meeting-scribe-mac
 open .build/MeetingScribe.app
 ```
 
+普段使うときは、release でビルドして `/Applications` に入れる。
+
+```bash
+./install-app.sh
+```
+
+入れたあとの最初の起動で、マイクとシステム音声の許可のダイアログが続けて出るので、どちらも許可する。録音を始めた瞬間にダイアログが出て会議の冒頭を取り逃がさないよう、許可は起動時にまとめて求める。一度許可すれば、入れ直しても聞かれない。
+
 ### テストの実行
 
 ```bash
@@ -45,7 +53,7 @@ open .build/MeetingScribe.app
 
 Xcode 本体が無く Command Line Tools だけの環境でも動くよう、テストは XCTest ではなく Swift Testing で書いている。`run-tests.sh` は Command Line Tools に同梱された Swift Testing の場所を `swift test` に渡す。
 
-初回起動時、マイクと画面/システム音声の記録(システムオーディオキャプチャ)の許可ダイアログが出るので許可してください。WhisperKit の `small` モデルと SpeakerKit の話者分離モデルは初回起動時に自動ダウンロードされます(合計 500MB 程度、数分かかることがあります)。
+初回起動時、マイクとシステム音声の録音の許可ダイアログが出るので許可してください。WhisperKit の `small` モデルと SpeakerKit の話者分離モデルは初回起動時に自動ダウンロードされます(合計 500MB 程度、数分かかることがあります)。
 
 ### 署名について(重要)
 
@@ -53,7 +61,7 @@ Xcode 本体が無く Command Line Tools だけの環境でも動くよう、テ
 
 これを避けるため `setup-dev-signing-cert.sh` でローカルの自己署名コード署名証明書(`MeetingScribe Dev`)をログインキーチェーンに作成し、`build-app.sh` はこの証明書でアプリ全体に署名します。証明書の秘密鍵は再ビルドしても変わらないため、一度権限を許可すれば以後の再ビルドでも維持されます。
 
-証明書の秘密鍵は `codesign` からしか使えないようにしている。どのアプリからでも使える設定にすると、他のプログラムが同じ証明書で自分に署名し、このアプリに与えたマイクや画面収録の許可を横取りできてしまうため。以前の版のスクリプトで証明書を作った場合はこの設定になっていないので、次のコマンドで作り直す(途中で Mac のパスワードを2回求められる。作り直した後は画面/システム音声キャプチャの許可を一度与え直す)。
+証明書の秘密鍵は `codesign` からしか使えないようにしている。どのアプリからでも使える設定にすると、他のプログラムが同じ証明書で自分に署名し、このアプリに与えたマイクやシステム音声の許可を横取りできてしまうため。以前の版のスクリプトで証明書を作った場合はこの設定になっていないので、次のコマンドで作り直す(途中で Mac のパスワードを2回求められる。作り直した後は画面/システム音声キャプチャの許可を一度与え直す)。
 
 ```bash
 ./setup-dev-signing-cert.sh --recreate
@@ -63,7 +71,7 @@ Xcode 本体が無く Command Line Tools だけの環境でも動くよう、テ
 万一システム音声キャプチャの権限がおかしくなった場合は、以下を試してください。
 
 ```bash
-tccutil reset ScreenCapture local.meetingscribe
+tccutil reset AudioCapture local.meetingscribe
 ```
 
 その後アプリを再起動すると、許可ダイアログが再度表示されます。
