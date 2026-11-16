@@ -142,7 +142,9 @@ let minutesPath;
 function saveMinutes(text) {
   if (text.trim().length === 0) return;
   mkdirSync(args.minutes, { recursive: true });
-  const stamp = new Date().toISOString().slice(0, 19).replace(/[-:]/g, "").replace("T", "-");
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
   minutesPath = join(args.minutes, `minutes-${stamp}.txt`);
   writeFileSync(minutesPath, text + "\n");
 }
