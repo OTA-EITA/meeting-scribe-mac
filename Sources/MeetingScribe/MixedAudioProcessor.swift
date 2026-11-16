@@ -38,7 +38,7 @@ final class MixedAudioProcessor: NSObject, AudioProcessing {
     private var audioBufferCallback: (([Float]) -> Void)?
 
     private let micEngine = AVAudioEngine()
-    private let systemAudio: Any?
+    private let systemAudio: SystemAudioSource
     private let targetFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false)!
 
     private let bufferLock = NSLock()
@@ -57,10 +57,10 @@ final class MixedAudioProcessor: NSObject, AudioProcessing {
     var onSystemAudioFailure: ((Error) -> Void)?
 
     override init() {
-        if #available(macOS 13.0, *) {
-            systemAudio = SystemAudioCapture()
+        if #available(macOS 14.2, *) {
+            systemAudio = ProcessTapAudioCapture()
         } else {
-            systemAudio = nil
+            systemAudio = SystemAudioCapture()
         }
         super.init()
     }
@@ -126,9 +126,8 @@ final class MixedAudioProcessor: NSObject, AudioProcessing {
         stopMixTimer()
         micEngine.stop()
         micEngine.inputNode.removeTap(onBus: 0)
-        if #available(macOS 13.0, *), let capture = systemAudio as? SystemAudioCapture {
-            Task { await capture.stop() }
-        }
+        let capture = systemAudio
+        Task { await capture.stop() }
     }
 
     func resumeRecordingLive(inputDeviceID: DeviceID?, callback: (([Float]) -> Void)?) throws {
@@ -179,7 +178,7 @@ final class MixedAudioProcessor: NSObject, AudioProcessing {
     // MARK: - System audio capture
 
     private func startSystemAudio() {
-        guard #available(macOS 13.0, *), let capture = systemAudio as? SystemAudioCapture else { return }
+        let capture = systemAudio
         capture.onSamples = { [weak self] samples in
             guard let self else { return }
             self.bufferLock.lock()
@@ -190,7 +189,7 @@ final class MixedAudioProcessor: NSObject, AudioProcessing {
             do {
                 try await capture.start()
             } catch {
-                // 画面収録権限が無い、または失敗した場合はマイクのみで続行する。
+                // システム音声の許可が無い、または失敗した場合はマイクのみで続行する。
                 debugLog("MixedAudioProcessor: システム音声キャプチャを開始できませんでした。マイクのみで続行します: \(error)")
                 onSystemAudioFailure?(error)
             }
