@@ -154,6 +154,10 @@ final class TranscriptionServer {
             // システム出力音声(Meet相手の声など)も合成して文字起こし対象にする。
             let model = ModelSettings.current.modelName
             let pipe = try await WhisperKit(model: model, audioProcessor: MixedAudioProcessor(), load: true)
+            // 読み込んだ直後のモデルは最初の数回の処理が遅く、最初の録音で文字起こしが音声に追いつかず、
+            // 30 秒ぶんがまるごと抜けることがあった。無音を一度文字起こしして温めてから使う
+            _ = try? await pipe.transcribe(audioArray: [Float](repeating: 0, count: WhisperKit.sampleRate * 2),
+                                           decodeOptions: Self.decodingOptions)
             whisperKit = pipe
             modelReady = true
             broadcast(TranscriptMessage(type: "status", status: "ready"))
@@ -193,7 +197,7 @@ final class TranscriptionServer {
             textDecoder: whisperKit.textDecoder,
             tokenizer: tokenizer,
             audioProcessor: whisperKit.audioProcessor,
-            decodingOptions: DecodingOptions(language: "ja", usePrefillPrompt: true, skipSpecialTokens: true)
+            decodingOptions: Self.decodingOptions
         ) { [weak self] _, newState in
             Task { @MainActor in
                 guard let self else { return }
@@ -273,20 +277,27 @@ final class TranscriptionServer {
     /// 最終テキストを配信・ローカルへ議事録として自動書き出しする。話者分離
     /// モデルが未ロード、もしくは失敗した場合も、自分/相手の判定はマイク/
     /// システム音声のどちらが優勢だったかで(話者分離とは独立に)行える。
+    private static let decodingOptions = DecodingOptions(language: "ja", usePrefillPrompt: true, skipSpecialTokens: true)
+
     private func finalizeWithSpeakerLabels() async {
         guard let whisperKit, let state = latestTranscriberState else {
             broadcast(TranscriptMessage(type: "status", status: "stopped"))
             return
         }
-        let allSegments = state.confirmedSegments + state.unconfirmedSegments
+        broadcast(TranscriptMessage(type: "status", status: "diarizing", message: "議事録を仕上げています…"))
+        let fullAudio = Array(whisperKit.audioProcessor.audioSamples)
+        // 録音中の文字起こしは、処理が遅れると一部を飛ばすことがある。保存する議事録は録音全体を
+        // 文字起こしし直して作る。うまくいかなければ録音中にできた分を使う
+        var allSegments = await transcribeRecording(fullAudio, whisperKit: whisperKit)
+        if allSegments.isEmpty {
+            allSegments = state.confirmedSegments + state.unconfirmedSegments
+        }
         guard !allSegments.isEmpty else {
             broadcast(TranscriptMessage(type: "status", status: "stopped"))
             return
         }
 
         if let speakerKit {
-            broadcast(TranscriptMessage(type: "status", status: "diarizing"))
-            let fullAudio = Array(whisperKit.audioProcessor.audioSamples)
             do {
                 latestDiarization = try await speakerKit.diarize(audioArray: fullAudio)
             } catch {
@@ -324,6 +335,20 @@ final class TranscriptionServer {
     /// (MixedAudioProcessor 以外を使っている等)場合は、話者分離のみによる
     /// 従来のラベル付けにフォールバックする。幻聴のセグメントは先に取り除く。
     /// timestamps が true なら、各行の頭に録音開始からの経過時間 [hh:mm:ss] を付ける。
+    /// 録音全体をまとめて文字起こしする。話していない時間が長いと Whisper は聞こえたつもりの文を作るので、
+    /// 本家の Whisper と同じく、声が入っていない見込みが高く自信も低い区切りは捨てる
+    private func transcribeRecording(_ audio: [Float], whisperKit: WhisperKit) async -> [TranscriptionSegment] {
+        guard audio.count > WhisperKit.sampleRate else { return [] }
+        do {
+            let results = try await whisperKit.transcribe(audioArray: audio, decodeOptions: Self.decodingOptions)
+            return results.flatMap { $0.segments }
+                .filter { !($0.noSpeechProb > 0.6 && $0.avgLogprob < -1.0) }
+        } catch {
+            debugLog("TranscriptionServer: 録音全体を文字起こしできませんでした: \(error)")
+            return []
+        }
+    }
+
     func labelSegmentsHybrid(_ segments: [TranscriptionSegment], timestamps: Bool = false) -> String {
         let segments = HallucinationFilter.filter(segments)
         guard !segments.isEmpty else { return "" }
