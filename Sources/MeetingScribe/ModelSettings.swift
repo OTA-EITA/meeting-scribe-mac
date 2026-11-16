@@ -7,6 +7,8 @@ enum WhisperModelOption: String, CaseIterable, Identifiable {
     case small
     case medium
     case largeV3Turbo = "large-v3-v20240930_turbo"
+    /// large-v3 turbo を量子化して小さくしたもの。精度はほぼ変わらず、容量は半分以下
+    case largeV3TurboCompact = "large-v3-v20240930_turbo_632MB"
 
     var id: String { rawValue }
 
@@ -18,6 +20,7 @@ enum WhisperModelOption: String, CaseIterable, Identifiable {
         case .small: return "small (速い・約500MB)"
         case .medium: return "medium (高精度・約1.5GB)"
         case .largeV3Turbo: return "large-v3 turbo (最高精度・約1.6GB)"
+        case .largeV3TurboCompact: return "large-v3 turbo 軽量版 (高精度・約650MB)"
         }
     }
 }
