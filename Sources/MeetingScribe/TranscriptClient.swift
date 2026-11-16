@@ -24,7 +24,7 @@ final class TranscriptClient: ObservableObject {
     @Published var unconfirmedText = ""
     /// セッションをまたいで蓄積した文字起こし全文(保存・一覧表示用)
     @Published var transcript = ""
-    /// 直前の録音セッションで自動保存された議事録(.txt)の場所
+    /// 直前の録音セッションで自動保存された議事録(.txt か .txt.enc)の場所
     @Published var lastExportURL: URL?
 
     private var client: RawWebSocketClient?
@@ -116,7 +116,7 @@ final class TranscriptClient: ObservableObject {
     }
 
     /// 「相手1」などのラベルを実際の名前に付け替える。画面の全文と、
-    /// 直前に自動保存した議事録(.txt と .md)の両方を書き直す。
+    /// 直前に自動保存した議事録を、保存したときと同じ形式で書き直す。
     /// 保存先フォルダの外を指していたら、ファイルには触れない。
     func renameSpeakers(_ mapping: [String: String], exportFolder: URL = ExportSettings.folderURL) {
         transcript = TranscriptFormatter.renameSpeakers(in: transcript, mapping: mapping)
@@ -126,9 +126,9 @@ final class TranscriptClient: ObservableObject {
             return
         }
         do {
-            let saved = try String(contentsOf: lastExportURL, encoding: .utf8)
+            let saved = try TranscriptFiles.read(lastExportURL)
             let renamed = TranscriptFormatter.renameSpeakers(in: saved, mapping: mapping)
-            try TranscriptFiles.write(renamed, to: lastExportURL)
+            try TranscriptFiles.rewrite(renamed, at: lastExportURL)
         } catch {
             statusText = "議事録の書き直しに失敗しました: \(error.localizedDescription)"
         }

@@ -239,16 +239,12 @@ struct TranscriptionServerTimestampTests {
 
 struct TranscriptFilesTests {
     @Test func writesTextAndMarkdownSideBySide() throws {
-        let previous = UserDefaults.standard.object(forKey: "exportMarkdown")
-        defer { UserDefaults.standard.set(previous, forKey: "exportMarkdown") }
-        ExportSettings.saveMarkdown = true
-
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
 
         let textURL = folder.appendingPathComponent("議事録_test.txt")
-        try TranscriptFiles.write("[00:00:01] [自分] こんにちは", to: textURL)
+        try TranscriptFiles.write("[00:00:01] [自分] こんにちは", to: textURL, encrypt: false, markdown: true)
 
         #expect(try String(contentsOf: textURL, encoding: .utf8) == "[00:00:01] [自分] こんにちは")
         let markdown = try String(contentsOf: TranscriptFiles.markdownURL(for: textURL), encoding: .utf8)

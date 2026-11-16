@@ -26,6 +26,14 @@ enum ExportSettings {
         set { UserDefaults.standard.set(newValue, forKey: markdownKey) }
     }
 
+    private static let encryptKey = "exportEncrypted"
+
+    /// 議事録を暗号化して保存するか。未設定なら暗号化する。
+    static var encrypt: Bool {
+        get { UserDefaults.standard.object(forKey: encryptKey) as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: encryptKey) }
+    }
+
     static var defaultFolderURL: URL {
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         return documents.appendingPathComponent("MeetingScribe議事録", isDirectory: true)
