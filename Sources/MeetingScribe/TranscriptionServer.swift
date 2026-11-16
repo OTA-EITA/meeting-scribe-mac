@@ -290,8 +290,8 @@ final class TranscriptionServer {
         // 文字起こしし直して作り、それでも文字の入らなかった時間は録音中にできた分で埋める
         let liveSegments = state.confirmedSegments + state.unconfirmedSegments
         var allSegments = await transcribeRecording(fullAudio, whisperKit: whisperKit)
-        let missing = TranscriptCoverage.uncovered(candidates: liveSegments.map { ($0.start, $0.end) },
-                                                   covered: allSegments.map { ($0.start, $0.end) })
+        let missing = TranscriptCoverage.missing(live: liveSegments.map { (($0.start, $0.end), $0.text) },
+                                                 final: allSegments.map { (($0.start, $0.end), $0.text) })
         allSegments = (allSegments + missing.map { liveSegments[$0] }).sorted { $0.start < $1.start }
         guard !allSegments.isEmpty else {
             broadcast(TranscriptMessage(type: "status", status: "stopped"))
