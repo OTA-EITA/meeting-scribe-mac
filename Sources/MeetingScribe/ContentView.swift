@@ -10,6 +10,11 @@ struct ContentView: View {
     @State private var saveMarkdown = ExportSettings.saveMarkdown
     /// 「相手1」などのラベルごとに入力中の名前
     @State private var speakerNames: [String: String] = [:]
+    /// 選択欄の "" は「Mac の設定に従う」
+    @State private var inputUID = AudioDeviceSettings.inputUID ?? ""
+    @State private var outputUID = AudioDeviceSettings.outputUID ?? ""
+    @State private var inputDevices = AudioDevices.inputs()
+    @State private var outputDevices = AudioDevices.outputs()
 
     private var otherSpeakerLabels: [String] {
         TranscriptFormatter.otherSpeakerLabels(in: client.transcript)
@@ -139,6 +144,8 @@ struct ContentView: View {
             }
             .frame(maxWidth: 320)
 
+            audioDevicePickers
+
             Picker("文字起こしモデル", selection: $selectedModel) {
                 ForEach(WhisperModelOption.allCases) { option in
                     Text(option.displayName).tag(option)
@@ -174,6 +181,50 @@ struct ContentView: View {
         }
         .padding(24)
         .frame(minWidth: 480, minHeight: 480)
+    }
+
+    /// 録音に使うマイクと、相手の声を取る出力先。録音を始めるときに読むので、録音中は変えられない
+    private var audioDevicePickers: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Picker("マイク (自分の声)", selection: $inputUID) {
+                Text("Mac の設定に従う (いま: \(AudioDevices.defaultInput()?.name ?? "なし"))").tag("")
+                ForEach(inputDevices) { device in
+                    Text(device.name).tag(device.uid)
+                }
+            }
+            .onChange(of: inputUID) { _, newValue in
+                AudioDeviceSettings.inputUID = newValue.isEmpty ? nil : newValue
+            }
+
+            Picker("相手の声を取る出力先", selection: $outputUID) {
+                Text("Mac の設定に従う (いま: \(AudioDevices.defaultOutput()?.name ?? "なし"))").tag("")
+                ForEach(outputDevices) { device in
+                    Text(device.name).tag(device.uid)
+                }
+            }
+            .onChange(of: outputUID) { _, newValue in
+                AudioDeviceSettings.outputUID = newValue.isEmpty ? nil : newValue
+            }
+
+            HStack {
+                Text("イヤホンで聞くときは、出力先をそのイヤホンにします。")
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("一覧を更新") { refreshAudioDevices() }
+            }
+        }
+        .font(.caption)
+        .frame(maxWidth: 420)
+        .disabled(client.isRecording || client.isDiarizing)
+        .onAppear { refreshAudioDevices() }
+    }
+
+    /// イヤホンの抜き差しで一覧が変わる。選んでいたものが抜かれていたら Mac の設定に戻す
+    private func refreshAudioDevices() {
+        inputDevices = AudioDevices.inputs()
+        outputDevices = AudioDevices.outputs()
+        if !inputDevices.contains(where: { $0.uid == inputUID }) { inputUID = "" }
+        if !outputDevices.contains(where: { $0.uid == outputUID }) { outputUID = "" }
     }
 
     private func saveTranscript(_ text: String) {
