@@ -116,3 +116,17 @@ test("--others-only のときは相手の発言だけを流す", async () => {
     server.close();
   }
 });
+
+test("つないだ直後に状態より先に文字起こしが届いても、同じ内容を二度流さない", async () => {
+  const { server, port } = await fakeEngine([
+    { type: "transcript", confirmedText: "[相手1] 途中から\n[自分] はい" },
+    { type: "status", status: "recording" },
+    { type: "transcript", confirmedText: "[相手1] 途中から\n[自分] はい\n[相手1] 続き\n[自分] 了解" },
+  ]);
+  try {
+    const lines = await run(port, [], (out) => out.includes("続き"));
+    assert.deepEqual(lines, ["[相手1] 途中から", "[自分] はい", "[相手1] 続き"]);
+  } finally {
+    server.close();
+  }
+});
