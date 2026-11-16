@@ -78,7 +78,8 @@ function handle(message) {
         }
         break;
       }
-      diff.update(message.confirmedText);
+      // 確定前の部分まで含む liveText があればそちらを使う。無いエンジン(Windows 版など)は確定した分だけ
+      diff.update(message.liveText ?? message.confirmedText);
       break;
     case "status":
       if (message.status === "recording") {
