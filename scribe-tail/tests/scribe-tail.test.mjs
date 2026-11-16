@@ -91,14 +91,27 @@ test("録音中に何も届かなければ、停止後の全文を流す (Window
   }
 });
 
-test("確定前の部分まで含む liveText があれば、短く話して黙ってもすぐ流す", async () => {
+test("--fast のときは確定前の部分まで含む liveText を使い、短く話して黙ってもすぐ流す", async () => {
   const { server, port } = await fakeEngine([
     { type: "status", status: "recording" },
     { type: "transcript", confirmedText: "", unconfirmedText: "はい了解です", liveText: "[自分] はい了解です" },
   ]);
   try {
-    const lines = await run(port, [], (out) => out.includes("了解です"));
+    const lines = await run(port, ["--fast"], (out) => out.includes("了解です"));
     assert.deepEqual(lines, ["[自分] はい了解です"]);
+  } finally {
+    server.close();
+  }
+});
+
+test("--others-only のときは相手の発言だけを流す", async () => {
+  const { server, port } = await fakeEngine([
+    { type: "status", status: "recording" },
+    { type: "transcript", confirmedText: "[自分] 始めます\n[相手1] お願いします\n[自分] では\n[不明] はい\n[相手2] 次" },
+  ]);
+  try {
+    const lines = await run(port, ["--others-only"], (out) => out.includes("はい"));
+    assert.deepEqual(lines, ["[相手1] お願いします", "[不明] はい"]);
   } finally {
     server.close();
   }
