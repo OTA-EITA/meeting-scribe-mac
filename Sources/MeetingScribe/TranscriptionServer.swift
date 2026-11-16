@@ -196,7 +196,8 @@ final class TranscriptionServer {
                 self.latestTranscriberState = newState
                 let confirmed = self.labelSegmentsHybrid(newState.confirmedSegments)
                 let unconfirmed = HallucinationFilter.filter(newState.unconfirmedSegments).map { $0.text }.joined()
-                self.broadcast(TranscriptMessage(type: "transcript", confirmedText: confirmed, unconfirmedText: unconfirmed))
+                let live = self.labelSegmentsHybrid(newState.confirmedSegments + newState.unconfirmedSegments)
+                self.broadcast(TranscriptMessage(type: "transcript", confirmedText: confirmed, unconfirmedText: unconfirmed, liveText: live))
             }
         }
         audioStreamTranscriber = transcriber
