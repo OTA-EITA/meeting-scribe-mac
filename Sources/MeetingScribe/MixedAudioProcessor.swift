@@ -31,10 +31,15 @@ final class MixedAudioProcessor: NSObject, AudioProcessing {
 
     // MARK: - State
 
-    private(set) var audioSamples: ContiguousArray<Float> = []
-    private var audioEnergy: [(rel: Float, avg: Float, max: Float, min: Float)] = []
+    // 録音した音声とエネルギーは、こちらがメインスレッドで書き足し、WhisperKit が別のスレッドで読む。
+    // 鍵なしで同時に読み書きすると配列が壊れ、範囲外アクセスで落ちたり、文が丸ごと抜けたりするので、
+    // 読み書きはすべて samplesLock の中で行う
+    private let samplesLock = NSLock()
+    private var storedAudioSamples: ContiguousArray<Float> = []
+    private var storedAudioEnergy: [(rel: Float, avg: Float, max: Float, min: Float)] = []
+    var audioSamples: ContiguousArray<Float> { samplesLock.withLock { storedAudioSamples } }
     var relativeEnergyWindow: Int = 20
-    var relativeEnergy: [Float] { audioEnergy.map { $0.rel } }
+    var relativeEnergy: [Float] { samplesLock.withLock { storedAudioEnergy.map { $0.rel } } }
     private var audioBufferCallback: (([Float]) -> Void)?
 
     private let micEngine = AVAudioEngine()
@@ -66,14 +71,18 @@ final class MixedAudioProcessor: NSObject, AudioProcessing {
     }
 
     func purgeAudioSamples(keepingLast keep: Int) {
-        if audioSamples.count > keep {
-            audioSamples.removeFirst(audioSamples.count - keep)
+        samplesLock.withLock {
+            if storedAudioSamples.count > keep {
+                storedAudioSamples.removeFirst(storedAudioSamples.count - keep)
+            }
         }
     }
 
     func startRecordingLive(inputDeviceID: DeviceID?, callback: (([Float]) -> Void)?) throws {
-        audioSamples = []
-        audioEnergy = []
+        samplesLock.withLock {
+            storedAudioSamples = []
+            storedAudioEnergy = []
+        }
         audioBufferCallback = callback
         micBuffer = []
         systemBuffer = []
@@ -259,12 +268,13 @@ final class MixedAudioProcessor: NSObject, AudioProcessing {
     /// `AudioProcessor.processBuffer(_:)` と同じロジック(サンプル追加・エネルギー計算・
     /// コールバック呼び出し)を、公開されている static ヘルパーで再現している。
     private func processBuffer(_ buffer: [Float]) {
-        audioSamples.append(contentsOf: buffer)
-
-        let minAvgEnergy = audioEnergy.suffix(20).reduce(Float.infinity) { min($0, $1.avg) }
-        let relative = AudioProcessor.calculateRelativeEnergy(of: buffer, relativeTo: minAvgEnergy)
         let signalEnergy = AudioProcessor.calculateEnergy(of: buffer)
-        audioEnergy.append((relative, signalEnergy.avg, signalEnergy.max, signalEnergy.min))
+        samplesLock.withLock {
+            storedAudioSamples.append(contentsOf: buffer)
+            let minAvgEnergy = storedAudioEnergy.suffix(20).reduce(Float.infinity) { min($0, $1.avg) }
+            let relative = AudioProcessor.calculateRelativeEnergy(of: buffer, relativeTo: minAvgEnergy)
+            storedAudioEnergy.append((relative, signalEnergy.avg, signalEnergy.max, signalEnergy.min))
+        }
 
         audioBufferCallback?(buffer)
     }
