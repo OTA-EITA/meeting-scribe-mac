@@ -20,6 +20,9 @@ final class TranscriptionServer {
     private var speakerKit: SpeakerKit?
     private var audioStreamTranscriber: AudioStreamTranscriber?
     private var latestTranscriberState: AudioStreamTranscriber.State?
+    /// 録音中に最後に送った文字起こし。WhisperKit は音量が変わるたびに状態を知らせてくるので、
+    /// 中身が同じなら送らない(毎秒 100 回ほど全文を送ることになり、長い会議ほど重くなるため)
+    private var lastTranscript: TranscriptMessage?
     private var isRecording = false
     private var modelReady = false
     private var isLoadingModel = false
@@ -180,6 +183,7 @@ final class TranscriptionServer {
             }
         }
         otherSpeakerNumbering = [:]
+        lastTranscript = nil
         broadcast(TranscriptMessage(type: "status", status: "recording"))
 
         let transcriber = AudioStreamTranscriber(
@@ -197,7 +201,13 @@ final class TranscriptionServer {
                 let confirmed = self.labelSegmentsHybrid(newState.confirmedSegments)
                 let unconfirmed = HallucinationFilter.filter(newState.unconfirmedSegments).map { $0.text }.joined()
                 let live = self.labelSegmentsHybrid(newState.confirmedSegments + newState.unconfirmedSegments)
-                self.broadcast(TranscriptMessage(type: "transcript", confirmedText: confirmed, unconfirmedText: unconfirmed, liveText: live))
+                if let last = self.lastTranscript,
+                   last.confirmedText == confirmed, last.unconfirmedText == unconfirmed, last.liveText == live {
+                    return
+                }
+                let message = TranscriptMessage(type: "transcript", confirmedText: confirmed, unconfirmedText: unconfirmed, liveText: live)
+                self.lastTranscript = message
+                self.broadcast(message)
             }
         }
         audioStreamTranscriber = transcriber
@@ -391,6 +401,11 @@ final class TranscriptionServer {
         guard let data = try? JSONEncoder().encode(TranscriptMessage(type: "status", status: status)),
               let text = String(data: data, encoding: .utf8) else { return }
         WebSocketIO.send(text, on: connection)
+        // 録音の途中でつないだ画面にも、そこまでの文字起こしをすぐ見せる
+        if isRecording, let lastTranscript,
+           let data = try? JSONEncoder().encode(lastTranscript), let transcriptText = String(data: data, encoding: .utf8) {
+            WebSocketIO.send(transcriptText, on: connection)
+        }
         if let modelLoadError {
             guard let errData = try? JSONEncoder().encode(TranscriptMessage(type: "error", message: "モデルの読み込みに失敗しました: \(modelLoadError)")),
                   let errText = String(data: errData, encoding: .utf8) else { return }
