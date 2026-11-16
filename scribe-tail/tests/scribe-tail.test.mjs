@@ -90,3 +90,16 @@ test("録音中に何も届かなければ、停止後の全文を流す (Window
     server.close();
   }
 });
+
+test("確定前の部分まで含む liveText があれば、短く話して黙ってもすぐ流す", async () => {
+  const { server, port } = await fakeEngine([
+    { type: "status", status: "recording" },
+    { type: "transcript", confirmedText: "", unconfirmedText: "はい了解です", liveText: "[自分] はい了解です" },
+  ]);
+  try {
+    const lines = await run(port, [], (out) => out.includes("了解です"));
+    assert.deepEqual(lines, ["[自分] はい了解です"]);
+  } finally {
+    server.close();
+  }
+});
