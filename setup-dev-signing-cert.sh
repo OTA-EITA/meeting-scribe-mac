@@ -40,8 +40,11 @@ openssl req -x509 -newkey rsa:2048 -keyout "$WORK_DIR/key.pem" -out "$WORK_DIR/c
     -addext "basicConstraints=critical,CA:false"
 
 PASSPHRASE=$(openssl rand -hex 16)
+# OpenSSL 3 以降は既定で AES と SHA-256 で .p12 を作るが、macOS の security はそれを読めず
+# 「MAC verification failed」で取り込みに失敗する。macOS が読める古い方式を明示する
 openssl pkcs12 -export -out "$WORK_DIR/cert.p12" \
     -inkey "$WORK_DIR/key.pem" -in "$WORK_DIR/cert.pem" \
+    -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES -macalg sha1 \
     -passout "pass:$PASSPHRASE"
 
 echo "ログインキーチェーンへインポートしています..."

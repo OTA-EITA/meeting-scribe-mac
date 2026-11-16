@@ -26,6 +26,7 @@ struct MeetingScribeApp: App {
         NSApplication.shared.activate(ignoringOtherApps: true)
 
         Task { @MainActor in
+            await Permissions.requestOnFirstLaunch()
             Self.engine.start()
             Self.appState.client.connect()
         }

@@ -31,14 +31,19 @@ final class MixedAudioProcessor: NSObject, AudioProcessing {
 
     // MARK: - State
 
-    private(set) var audioSamples: ContiguousArray<Float> = []
-    private var audioEnergy: [(rel: Float, avg: Float, max: Float, min: Float)] = []
+    // 録音した音声とエネルギーは、こちらがメインスレッドで書き足し、WhisperKit が別のスレッドで読む。
+    // 鍵なしで同時に読み書きすると配列が壊れ、範囲外アクセスで落ちたり、文が丸ごと抜けたりするので、
+    // 読み書きはすべて samplesLock の中で行う
+    private let samplesLock = NSLock()
+    private var storedAudioSamples: ContiguousArray<Float> = []
+    private var storedAudioEnergy: [(rel: Float, avg: Float, max: Float, min: Float)] = []
+    var audioSamples: ContiguousArray<Float> { samplesLock.withLock { storedAudioSamples } }
     var relativeEnergyWindow: Int = 20
-    var relativeEnergy: [Float] { audioEnergy.map { $0.rel } }
+    var relativeEnergy: [Float] { samplesLock.withLock { storedAudioEnergy.map { $0.rel } } }
     private var audioBufferCallback: (([Float]) -> Void)?
 
     private let micEngine = AVAudioEngine()
-    private let systemAudio: Any?
+    private let systemAudio: SystemAudioSource
     private let targetFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false)!
 
     private let bufferLock = NSLock()
@@ -57,23 +62,27 @@ final class MixedAudioProcessor: NSObject, AudioProcessing {
     var onSystemAudioFailure: ((Error) -> Void)?
 
     override init() {
-        if #available(macOS 13.0, *) {
-            systemAudio = SystemAudioCapture()
+        if #available(macOS 14.2, *) {
+            systemAudio = ProcessTapAudioCapture()
         } else {
-            systemAudio = nil
+            systemAudio = SystemAudioCapture()
         }
         super.init()
     }
 
     func purgeAudioSamples(keepingLast keep: Int) {
-        if audioSamples.count > keep {
-            audioSamples.removeFirst(audioSamples.count - keep)
+        samplesLock.withLock {
+            if storedAudioSamples.count > keep {
+                storedAudioSamples.removeFirst(storedAudioSamples.count - keep)
+            }
         }
     }
 
     func startRecordingLive(inputDeviceID: DeviceID?, callback: (([Float]) -> Void)?) throws {
-        audioSamples = []
-        audioEnergy = []
+        samplesLock.withLock {
+            storedAudioSamples = []
+            storedAudioEnergy = []
+        }
         audioBufferCallback = callback
         micBuffer = []
         systemBuffer = []
@@ -126,9 +135,8 @@ final class MixedAudioProcessor: NSObject, AudioProcessing {
         stopMixTimer()
         micEngine.stop()
         micEngine.inputNode.removeTap(onBus: 0)
-        if #available(macOS 13.0, *), let capture = systemAudio as? SystemAudioCapture {
-            Task { await capture.stop() }
-        }
+        let capture = systemAudio
+        Task { await capture.stop() }
     }
 
     func resumeRecordingLive(inputDeviceID: DeviceID?, callback: (([Float]) -> Void)?) throws {
@@ -148,6 +156,7 @@ final class MixedAudioProcessor: NSObject, AudioProcessing {
         // installTap が呼ばれてクラッシュする('nullptr == Tap()')ことがあるため、
         // 念のため必ず一度外してから付け直す。
         input.removeTap(onBus: 0)
+        useSelectedInputDevice(input)
         let inputFormat = input.outputFormat(forBus: 0)
         guard let converter = AVAudioConverter(from: inputFormat, to: targetFormat) else {
             throw NSError(domain: "MixedAudioProcessor", code: 1,
@@ -176,10 +185,21 @@ final class MixedAudioProcessor: NSObject, AudioProcessing {
         try micEngine.start()
     }
 
+    /// 画面で選んだマイクに切り替える。形式を読む前に切り替えないと、前のマイクの形式のままになる
+    private func useSelectedInputDevice(_ input: AVAudioInputNode) {
+        guard let device = AudioDeviceSettings.input, let unit = input.audioUnit else { return }
+        var id = device.id
+        let status = AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0,
+                                          &id, UInt32(MemoryLayout<AudioDeviceID>.size))
+        if status != noErr {
+            debugLog("MixedAudioProcessor: マイクを \(device.name) に切り替えられませんでした (\(status))")
+        }
+    }
+
     // MARK: - System audio capture
 
     private func startSystemAudio() {
-        guard #available(macOS 13.0, *), let capture = systemAudio as? SystemAudioCapture else { return }
+        let capture = systemAudio
         capture.onSamples = { [weak self] samples in
             guard let self else { return }
             self.bufferLock.lock()
@@ -190,7 +210,7 @@ final class MixedAudioProcessor: NSObject, AudioProcessing {
             do {
                 try await capture.start()
             } catch {
-                // 画面収録権限が無い、または失敗した場合はマイクのみで続行する。
+                // システム音声の許可が無い、または失敗した場合はマイクのみで続行する。
                 debugLog("MixedAudioProcessor: システム音声キャプチャを開始できませんでした。マイクのみで続行します: \(error)")
                 onSystemAudioFailure?(error)
             }
@@ -248,12 +268,13 @@ final class MixedAudioProcessor: NSObject, AudioProcessing {
     /// `AudioProcessor.processBuffer(_:)` と同じロジック(サンプル追加・エネルギー計算・
     /// コールバック呼び出し)を、公開されている static ヘルパーで再現している。
     private func processBuffer(_ buffer: [Float]) {
-        audioSamples.append(contentsOf: buffer)
-
-        let minAvgEnergy = audioEnergy.suffix(20).reduce(Float.infinity) { min($0, $1.avg) }
-        let relative = AudioProcessor.calculateRelativeEnergy(of: buffer, relativeTo: minAvgEnergy)
         let signalEnergy = AudioProcessor.calculateEnergy(of: buffer)
-        audioEnergy.append((relative, signalEnergy.avg, signalEnergy.max, signalEnergy.min))
+        samplesLock.withLock {
+            storedAudioSamples.append(contentsOf: buffer)
+            let minAvgEnergy = storedAudioEnergy.suffix(20).reduce(Float.infinity) { min($0, $1.avg) }
+            let relative = AudioProcessor.calculateRelativeEnergy(of: buffer, relativeTo: minAvgEnergy)
+            storedAudioEnergy.append((relative, signalEnergy.avg, signalEnergy.max, signalEnergy.min))
+        }
 
         audioBufferCallback?(buffer)
     }

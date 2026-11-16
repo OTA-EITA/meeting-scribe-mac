@@ -2,12 +2,19 @@ import Foundation
 import ScreenCaptureKit
 import AVFoundation
 
-/// macOSの「画面収録」権限を使って、システムの出力音声(Google Meet等の
+/// システムの出力音声を取る仕組み。macOS 14.2 以降は ProcessTapAudioCapture、
+/// それより前は SystemAudioCapture を使う。
+protocol SystemAudioSource: AnyObject {
+    var onSamples: (([Float]) -> Void)? { get set }
+    func start() async throws
+    func stop() async
+}
+
+/// macOS 14.2 より前の macOS 向け。macOSの「画面収録」権限を使って、システムの出力音声(Google Meet等の
 /// 相手の声を含む、スピーカー/イヤホンに送られる音声)をキャプチャする。
 /// Bluetooth/有線イヤホン使用時はマイクだけでは相手の声を拾えないため、
 /// マイク入力と合成して文字起こしできるようにするために用意した。
-@available(macOS 13.0, *)
-final class SystemAudioCapture: NSObject, SCStreamOutput, SCStreamDelegate {
+final class SystemAudioCapture: NSObject, SystemAudioSource, SCStreamOutput, SCStreamDelegate {
     private var stream: SCStream?
     var onSamples: (([Float]) -> Void)?
 
