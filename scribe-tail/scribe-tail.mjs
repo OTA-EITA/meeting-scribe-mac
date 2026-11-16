@@ -3,11 +3,12 @@
 // 確定した文字起こしを 1 行ずつ標準出力に流す。tail -f のように、他のツールへ
 // 会議の内容をそのまま渡すために使う。
 //
-//   node scribe-tail.mjs [--port 8765] [--out meeting.log] [--status] [--others-only] [--fast]
+//   node scribe-tail.mjs [--port 8765] [--out meeting.log] [--status] [--others-only] [--fast] [--minutes DIR]
 //
 // Origin ヘッダーを付けないので、エンジンの OriginPolicy はアプリ内のクライアントと同じ扱いで通す。
 
-import { appendFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { TranscriptDiff } from "./transcript-diff.mjs";
 
@@ -18,6 +19,7 @@ const { values: args } = parseArgs({
     status: { type: "boolean", default: false },
     "others-only": { type: "boolean", default: false },
     fast: { type: "boolean", default: false },
+    minutes: { type: "string" },
     "idle-ms": { type: "string" },
     help: { type: "boolean", short: "h", default: false },
   },
@@ -31,6 +33,7 @@ if (args.help) {
   --status       録音の開始・停止・保存先も行頭 # で出す
   --others-only  相手の発言だけを出す(自分の発言は出さない)
   --fast         確定前の部分も出す。短く話して黙ってもすぐ出るが、言い直しで (訂正) が増える
+  --minutes DIR  停止後に届く議事録の全文を、このフォルダに平文で書き出す(アプリが暗号化して保存していても読めるように)
   --idle-ms      話が途切れてから、伸びている途中の行を出すまでの時間`);
   process.exit(0);
 }
@@ -87,6 +90,7 @@ function handle(message) {
   switch (message.type) {
     case "transcript":
       if (!afterStop) recording = true;
+      if (afterStop && args.minutes) saveMinutes(message.confirmedText ?? "");
       if (afterStop) {
         // 停止後の全文。録音中に流し終えていれば二重になるので捨て、何も流していなければここで流す
         if (linesWhileRecording === 0) {
@@ -119,6 +123,8 @@ function handle(message) {
         recording = false;
         diff.flush();
         notice(message.message ? `録音停止 保存先: ${message.message}` : "録音停止");
+        if (minutesPath) notice(`議事録の写し: ${minutesPath}`);
+        minutesPath = undefined;
       } else if (STATUS_TEXT[message.status]) {
         notice(STATUS_TEXT[message.status]);
       }
@@ -128,6 +134,17 @@ function handle(message) {
       notice(`${message.type === "error" ? "エラー" : "注意"}: ${message.message ?? ""}`);
       break;
   }
+}
+
+// 停止後に届いた議事録の写しの場所。stopped を受けたときに知らせる
+let minutesPath;
+
+function saveMinutes(text) {
+  if (text.trim().length === 0) return;
+  mkdirSync(args.minutes, { recursive: true });
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[-:]/g, "").replace("T", "-");
+  minutesPath = join(args.minutes, `minutes-${stamp}.txt`);
+  writeFileSync(minutesPath, text + "\n");
 }
 
 let connectedOnce = false;
