@@ -12,7 +12,7 @@ import SpeakerKit
 final class TranscriptionServer {
     nonisolated static let port: UInt16 = 8765
 
-    static let systemAudioWarning = "システム音声を取れていません。相手の声は文字起こしされません。システム設定の「画面とシステムオーディオの収録」で MeetingScribe を許可し、アプリを起動し直してください。"
+    static let systemAudioWarning = "システム音声を取れていません。相手の声は文字起こしされません。システム設定の「プライバシーとセキュリティ」→「画面とシステムオーディオの収録」(下の「システムオーディオ録音のみ」)で MeetingScribe を許可し、アプリを起動し直してください。"
 
     private var listener: NWListener?
     private var connections: [NWConnection] = []
