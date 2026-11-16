@@ -3,7 +3,7 @@
 // 確定した文字起こしを 1 行ずつ標準出力に流す。tail -f のように、他のツールへ
 // 会議の内容をそのまま渡すために使う。
 //
-//   node scribe-tail.mjs [--port 8765] [--out meeting.log] [--status]
+//   node scribe-tail.mjs [--port 8765] [--out meeting.log] [--status] [--others-only] [--fast]
 //
 // Origin ヘッダーを付けないので、エンジンの OriginPolicy はアプリ内のクライアントと同じ扱いで通す。
 
@@ -16,18 +16,22 @@ const { values: args } = parseArgs({
     port: { type: "string", default: "8765" },
     out: { type: "string" },
     status: { type: "boolean", default: false },
+    "others-only": { type: "boolean", default: false },
+    fast: { type: "boolean", default: false },
     "idle-ms": { type: "string" },
     help: { type: "boolean", short: "h", default: false },
   },
 });
 
 if (args.help) {
-  console.log(`使い方: scribe-tail [--port 8765] [--out FILE] [--status] [--idle-ms 2500]
+  console.log(`使い方: scribe-tail [--port 8765] [--out FILE] [--status] [--others-only] [--fast] [--idle-ms 2500]
 
-  --port     エンジンのポート(既定 8765)
-  --out      出力した行をこのファイルにも追記する
-  --status   録音の開始・停止・保存先も行頭 # で出す
-  --idle-ms  話が途切れてから、伸びている途中の行を出すまでの時間`);
+  --port         エンジンのポート(既定 8765)
+  --out          出力した行をこのファイルにも追記する
+  --status       録音の開始・停止・保存先も行頭 # で出す
+  --others-only  相手の発言だけを出す(自分の発言は出さない)
+  --fast         確定前の部分も出す。短く話して黙ってもすぐ出るが、言い直しで (訂正) が増える
+  --idle-ms      話が途切れてから、伸びている途中の行を出すまでの時間`);
   process.exit(0);
 }
 
@@ -52,10 +56,20 @@ let linesWhileRecording = 0;
 // 停止後に送り直される全文を待っているところ
 let afterStop = false;
 
+// 録音中の相手のラベルは「相手」「相手1」…か、話者が分からないときの「不明」
+const OTHERS_LABEL = /^(相手|不明)/;
+const LINE_LABEL = /^(?:\[\d{2}:\d{2}:\d{2}\] )?\[([^\]]+)\]/;
+
+function isOthers(line) {
+  const label = line.match(LINE_LABEL)?.[1];
+  return label === undefined || OTHERS_LABEL.test(label);
+}
+
 const diff = new TranscriptDiff({
   idleMs: args["idle-ms"] ? Number(args["idle-ms"]) : undefined,
   onLine: (line, { revised }) => {
     if (!afterStop) linesWhileRecording++;
+    if (args["others-only"] && !isOthers(line)) return;
     write(`${clock()} ${revised ? "(訂正) " : ""}${line}`);
   },
 });
@@ -78,8 +92,8 @@ function handle(message) {
         }
         break;
       }
-      // 確定前の部分まで含む liveText があればそちらを使う。無いエンジン(Windows 版など)は確定した分だけ
-      diff.update(message.liveText ?? message.confirmedText);
+      // --fast のときは確定前の部分まで含む liveText を使う。無いエンジン(Windows 版など)は確定した分だけ
+      diff.update((args.fast && message.liveText) || message.confirmedText);
       break;
     case "status":
       if (message.status === "recording") {
