@@ -287,11 +287,12 @@ final class TranscriptionServer {
         broadcast(TranscriptMessage(type: "status", status: "diarizing", message: "議事録を仕上げています…"))
         let fullAudio = Array(whisperKit.audioProcessor.audioSamples)
         // 録音中の文字起こしは、処理が遅れると一部を飛ばすことがある。保存する議事録は録音全体を
-        // 文字起こしし直して作る。うまくいかなければ録音中にできた分を使う
+        // 文字起こしし直して作り、それでも文字の入らなかった時間は録音中にできた分で埋める
+        let liveSegments = state.confirmedSegments + state.unconfirmedSegments
         var allSegments = await transcribeRecording(fullAudio, whisperKit: whisperKit)
-        if allSegments.isEmpty {
-            allSegments = state.confirmedSegments + state.unconfirmedSegments
-        }
+        let missing = TranscriptCoverage.uncovered(candidates: liveSegments.map { ($0.start, $0.end) },
+                                                   covered: allSegments.map { ($0.start, $0.end) })
+        allSegments = (allSegments + missing.map { liveSegments[$0] }).sorted { $0.start < $1.start }
         guard !allSegments.isEmpty else {
             broadcast(TranscriptMessage(type: "status", status: "stopped"))
             return
@@ -343,16 +344,38 @@ final class TranscriptionServer {
     /// (MixedAudioProcessor 以外を使っている等)場合は、話者分離のみによる
     /// 従来のラベル付けにフォールバックする。幻聴のセグメントは先に取り除く。
     /// timestamps が true なら、各行の頭に録音開始からの経過時間 [hh:mm:ss] を付ける。
-    /// 録音全体をまとめて文字起こしする。話していない時間が長いと Whisper は聞こえたつもりの文を作るので、
-    /// 本家の Whisper と同じく、声が入っていない見込みが高く自信も低い区切りは捨てる
+    /// 録音全体をまとめて文字起こしする。WhisperKit はときどき 30 秒の区切りを丸ごと空の文字で返すので、
+    /// 文字の入らなかった時間があれば、そこだけもう一度文字起こしする
     private func transcribeRecording(_ audio: [Float], whisperKit: WhisperKit) async -> [TranscriptionSegment] {
+        let rate = Float(WhisperKit.sampleRate)
+        var segments = await transcribe(audio, offset: 0, whisperKit: whisperKit)
+        let gaps = TranscriptCoverage.gaps(covered: segments.map { ($0.start, $0.end) }, duration: Float(audio.count) / rate)
+        for gap in gaps {
+            let from = min(audio.count, Int(gap.start * rate))
+            let to = min(audio.count, Int(gap.end * rate))
+            segments += await transcribe(Array(audio[from..<to]), offset: gap.start, whisperKit: whisperKit)
+        }
+        return segments.sorted { $0.start < $1.start }
+    }
+
+    /// audio を文字起こしし、文字の入った区切りだけを録音の始めからの時刻に直して返す。
+    /// 話していない時間が長いと Whisper は聞こえたつもりの文を作るので、本家の Whisper と同じく、
+    /// 声が入っていない見込みが高く自信も低い区切りは捨てる
+    private func transcribe(_ audio: [Float], offset: Float, whisperKit: WhisperKit) async -> [TranscriptionSegment] {
         guard audio.count > WhisperKit.sampleRate else { return [] }
         do {
             let results = try await whisperKit.transcribe(audioArray: audio, decodeOptions: Self.decodingOptions)
             return results.flatMap { $0.segments }
+                .filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
                 .filter { !($0.noSpeechProb > 0.6 && $0.avgLogprob < -1.0) }
+                .map { segment in
+                    var segment = segment
+                    segment.start += offset
+                    segment.end += offset
+                    return segment
+                }
         } catch {
-            debugLog("TranscriptionServer: 録音全体を文字起こしできませんでした: \(error)")
+            debugLog("TranscriptionServer: 文字起こしし直せませんでした: \(error)")
             return []
         }
     }
