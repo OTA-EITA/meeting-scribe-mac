@@ -36,4 +36,22 @@ struct TranscriptCoverageTests {
         let picked = TranscriptCoverage.uncovered(candidates: [(20, 30)], covered: [(0, 23)])
         #expect(picked == [0])
     }
+
+    @Test func picksALiveSentenceThatTheFinalPassStretchedOver() {
+        let final: [(span: TranscriptCoverage.Span, text: String)] = [
+            ((0, 14), "本日はお時間をいただきありがとうございます"),
+            ((41, 60), "社内ではセキュリティの審査に2週間ほどかかります報告書をいただくことはできますか"),
+        ]
+        let live: [(span: TranscriptCoverage.Span, text: String)] = [
+            ((0, 13), "本日はお時間をいただきありがとうございます。"),
+            ((41, 50), "社内ではセキュリティの審査に2週間ほどかかります報告書をいただくことはできますか"),
+            ((51, 58), "承知しました。報告書は金曜日までにメールでお送りします。"),
+        ]
+        #expect(TranscriptCoverage.missing(live: live, final: final) == [2])
+    }
+
+    @Test func treatsSmallRecognitionDifferencesAsTheSameSentence() {
+        let ratio = TranscriptCoverage.containment(of: "脆弱性診断の報告書をいただけますか", in: "税学生診断の報告書をいただけますか?")
+        #expect(ratio > 0.5)
+    }
 }
