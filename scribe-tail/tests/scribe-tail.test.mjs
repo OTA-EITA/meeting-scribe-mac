@@ -4,6 +4,8 @@ import { createServer } from "node:http";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 
 const cli = fileURLToPath(new URL("../scribe-tail.mjs", import.meta.url));
 
@@ -126,6 +128,26 @@ test("つないだ直後に状態より先に文字起こしが届いても、�
   try {
     const lines = await run(port, [], (out) => out.includes("続き"));
     assert.deepEqual(lines, ["[相手1] 途中から", "[自分] はい", "[相手1] 続き"]);
+  } finally {
+    server.close();
+  }
+});
+
+test("--minutes のときは停止後の議事録をフォルダに書き出し、その場所を知らせる", async () => {
+  const dir = mkdtempSync(`${tmpdir()}/scribe-tail-`);
+  const { server, port } = await fakeEngine([
+    { type: "status", status: "recording" },
+    { type: "transcript", confirmedText: "[自分] 始めます\n[相手1] お願いします" },
+    { type: "status", status: "diarizing" },
+    { type: "transcript", confirmedText: "[00:00:01] [自分] 始めます\n[00:00:03] [相手1] お願いします" },
+    { type: "status", status: "stopped", message: "/tmp/議事録.txt.enc" },
+  ]);
+  try {
+    const lines = await run(port, ["--status", "--minutes", dir], (out) => out.includes("議事録の写し"));
+    const notice = lines.find((line) => line.includes("議事録の写し"));
+    const path = notice.split("議事録の写し: ")[1];
+    assert.ok(path.startsWith(dir));
+    assert.equal(readFileSync(path, "utf8"), "[00:00:01] [自分] 始めます\n[00:00:03] [相手1] お願いします\n");
   } finally {
     server.close();
   }
