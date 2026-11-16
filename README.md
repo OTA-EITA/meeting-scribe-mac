@@ -160,6 +160,22 @@ node scribe-tail/scribe-tail.mjs --status
 cd scribe-tail && npm test
 ```
 
+## Claude Code で会議を分析する
+
+`.claude/skills/meeting-live/` は、[Claude Code](https://docs.anthropic.com/en/docs/claude-code) に会議の文字起こしを渡すためのスキルです。会議の途中で録音を止めるたびに、Claude Code がそこまでの議事録を読み、要約・相手の要望や条件や数字・次に聞くべきことを返します。
+
+要るもの: このアプリ、Node.js 22 以上、tmux(`brew install tmux`)。
+
+1. このリポジトリのフォルダで Claude Code を開く。ほかのフォルダからも使いたいときは、スキルをリンクしておく
+   ```bash
+   ln -s "$(pwd)/.claude/skills/meeting-live" ~/.claude/skills/meeting-live
+   ```
+2. Claude Code に「会議を聞いて」と頼む。会議の目的(「条件を詰めたい」など)も添えると、次に聞くことをそれに合わせて選ぶ
+3. アプリで「録音を開始」を押し、話の区切りで「停止する」を押す。停止するたびに、Claude Code に要約と次に聞くことが出る
+4. 終わったら「会議終わり」と頼む。頼めば全体のまとめも作る
+
+しくみ: Claude Code が scribe-tail を tmux の中で起こし、`~/meeting-logs/` に録音中の発言を書き出させる。停止後の議事録は `--minutes ~/meeting-logs/minutes` で平文の写しとして書き出し、Claude Code はそれを読む。アプリが保存する議事録は暗号化したままになる。`~/meeting-logs/` の中身は暗号化されないので、要らなくなったら消す。
+
 ## 既知の制限・注意点
 
 - **企業のセキュリティソフト(VPN/EDR)がある環境では、ローカルの WebSocket 通信(ループバック)が中断されることがあります。** 本プロジェクトの開発機では FortiClient の VPN 用ネットワーク拡張が `NWConnection`(Apple の Network.framework)経由のループバック通信を中断させる現象が確認されたため、UI 側のクライアントは Network.framework を使わず、生の BSD ソケットで実装した WebSocket クライアント(`RawWebSocketClient.swift`)を使っている。同様の環境では他の内部通信にも影響が出る可能性がある。
