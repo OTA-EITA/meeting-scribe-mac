@@ -147,6 +147,7 @@ final class MixedAudioProcessor: NSObject, AudioProcessing {
         // installTap が呼ばれてクラッシュする('nullptr == Tap()')ことがあるため、
         // 念のため必ず一度外してから付け直す。
         input.removeTap(onBus: 0)
+        useSelectedInputDevice(input)
         let inputFormat = input.outputFormat(forBus: 0)
         guard let converter = AVAudioConverter(from: inputFormat, to: targetFormat) else {
             throw NSError(domain: "MixedAudioProcessor", code: 1,
@@ -173,6 +174,17 @@ final class MixedAudioProcessor: NSObject, AudioProcessing {
 
         micEngine.prepare()
         try micEngine.start()
+    }
+
+    /// 画面で選んだマイクに切り替える。形式を読む前に切り替えないと、前のマイクの形式のままになる
+    private func useSelectedInputDevice(_ input: AVAudioInputNode) {
+        guard let device = AudioDeviceSettings.input, let unit = input.audioUnit else { return }
+        var id = device.id
+        let status = AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0,
+                                          &id, UInt32(MemoryLayout<AudioDeviceID>.size))
+        if status != noErr {
+            debugLog("MixedAudioProcessor: マイクを \(device.name) に切り替えられませんでした (\(status))")
+        }
     }
 
     // MARK: - System audio capture
